@@ -1,0 +1,178 @@
+* {
+  font-family: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif !important;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif !important;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  width: 100%;
+  overflow-x: hidden;
+}
+
+html {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  overflow-x: hidden;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
+/* Hide scrollbar for react-responsive-carousel */
+.carousel-root,
+.carousel,
+.slider-wrapper,
+.slider {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
+  user-select: none !important;
+}
+
+.carousel-root::-webkit-scrollbar,
+.carousel::-webkit-scrollbar,
+.slider-wrapper::-webkit-scrollbar,
+.slider::-webkit-scrollbar {
+  display: none !important;
+}
+
+/* Prevent text selection when dragging carousel */
+.carousel-root *,
+.carousel *,
+.slider-wrapper *,
+.slider *,
+.carousel-slider * {
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
+  user-select: none !important;
+  -webkit-touch-callout: none !important;
+  -webkit-tap-highlight-color: transparent !important;
+}
+
+/* Custom carousel dots style - lines instead of dots */
+.control-dots {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 15px 0 !important;
+  margin: 0 !important;
+  box-shadow: none !important;
+}
+
+.control-dots .dot {
+  width: 40px !important;
+  height: 2px !important;
+  border-radius: 0 !important;
+  background-color: #e5e5e5 !important;
+  opacity: 1 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  transition: all 0.3s ease !important;
+  cursor: pointer !important;
+  transition: all 0.3s ease !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+  filter: none !important;
+}
+
+.control-dots .dot.selected,
+.control-dots .dot:hover {
+  background-color: #000000 !important;
+  width: 50px !important;
+  height: 2px !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+  filter: none !important;
+}
+
+.control-dots .dot:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Hide all scrollbars globally for mobile */
+@media (max-width: 768px) {
+  * {
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+  }
+  
+  *::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+  }
+}
+
+/* Remove orange color from links */
+a {
+  color: inherit !important;
+  text-decoration: none !important;
+  border: none !important;
+  outline: none !important;
+}
+
+a:visited {
+  color: inherit !important;
+  border: none !important;
+}
+
+a:hover {
+  color: inherit !important;
+  border: none !important;
+  outline: none !important;
+}
+
+a:focus {
+  color: inherit !important;
+  outline: none !important;
+  border: none !important;
+}
+
+a:active {
+  color: inherit !important;
+  border: none !important;
+}
+
+/* Remove orange from all Chakra UI components */
+[class*="chakra"] {
+  border-color: transparent !important;
+}
+
+[class*="chakra"]:focus {
+  outline: none !important;
+  border-color: transparent !important;
+}
+
+[class*="chakra"]:hover {
+  border-color: transparent !important;
+}
+
+[class*="css-998uaq"] {
+  border: none !important;
+  outline: none !important;
+  background-color: white !important;
+}
+
+[class*="css-998uaq"]:focus,
+[class*="css-998uaq"]:hover,
+[class*="css-998uaq"]:active {
+  border: none !important;
+  outline: none !important;
+  background-color: white !important;
+}

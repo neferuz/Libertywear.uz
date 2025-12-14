@@ -1,0 +1,20 @@
+Ваш ngrok URL для Payme:
+
+https://7c48ce7eacc5.ngrok-free.app
+
+Полный URL эндпоинта для настройки в Payme:
+
+https://7c48ce7eacc5.ngrok-free.app/payme/merchant
+
+==========================================
+
+Инструкция:
+1. Зайдите в https://payme.uz
+2. Войдите в личный кабинет
+3. Перейдите: Настройки → Касса
+4. Найдите поле: URL эндпоинта / Merchant API URL
+5. Вставьте: https://7c48ce7eacc5.ngrok-free.app/payme/merchant
+6. Сохраните настройки
+
+ВАЖНО: Не закрывайте терминал с ngrok!
+
