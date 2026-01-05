@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Query, Depends, HTTPException, status
+from fastapi import APIRouter, Query, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 from typing import Optional, List
 from app.database import get_db
@@ -12,8 +12,9 @@ from app.schemas.product import (
     ProductVariantCreate,
     ProductVariantUpdate
 )
+from app.utils.translations import get_translated_product, get_translated_text
 
-router = APIRouter(prefix="/cloths", tags=["products"])
+router = APIRouter(prefix="/products", tags=["products"])
 
 # POST должен быть перед GET с параметрами
 @router.post("", response_model=ProductSchema, status_code=status.HTTP_201_CREATED)
@@ -77,6 +78,7 @@ async def get_products(
     limit: int = Query(10, ge=1, le=100),
     itemGender: Optional[str] = None,
     itemCategory: Optional[str] = None,
+    lang: str = Query('ru', description="Language code (ru, uz, en, es)"),
     db: Session = Depends(get_db)
 ):
     """
@@ -86,11 +88,56 @@ async def get_products(
     
     # Фильтрация по gender через категорию
     if itemGender:
-        query = query.join(Category).filter(Category.gender == itemGender)
+        # Пробуем разные варианты gender для совместимости
+        gender_variants = [itemGender]
+        if itemGender.lower() == 'kids':
+            gender_variants = ['kids', 'children', 'girls', 'boys', 'kid']
+        elif itemGender.lower() == 'children':
+            gender_variants = ['children', 'kids', 'girls', 'boys']
+        elif itemGender.lower() == 'male' or itemGender.lower() == 'men':
+            gender_variants = ['male', 'men']
+        elif itemGender.lower() == 'female' or itemGender.lower() == 'women':
+            gender_variants = ['female', 'women']
+        
+        # Находим все категории с нужным gender (любого уровня)
+        categories_with_gender = db.query(Category.id).filter(
+            Category.gender.in_(gender_variants)
+        ).all()
+        category_ids_with_gender = [cat.id for cat in categories_with_gender]
+        
+        # Находим все подкатегории этих категорий (рекурсивно до 4 уровней)
+        def get_all_subcategory_ids(parent_ids, depth=0, max_depth=4):
+            if depth >= max_depth or not parent_ids:
+                return []
+            subcategories = db.query(Category.id).filter(
+                Category.parent_id.in_(parent_ids)
+            ).all()
+            subcategory_ids = [sub.id for sub in subcategories]
+            # Рекурсивно получаем подкатегории подкатегорий
+            if subcategory_ids:
+                subcategory_ids.extend(get_all_subcategory_ids(subcategory_ids, depth + 1, max_depth))
+            return subcategory_ids
+        
+        all_subcategory_ids = get_all_subcategory_ids(category_ids_with_gender)
+        
+        # Объединяем категории с gender и все их подкатегории
+        all_valid_category_ids = list(set(category_ids_with_gender + all_subcategory_ids))
+        
+        if all_valid_category_ids:
+            # Фильтруем товары по найденным категориям
+            query = query.join(Category).filter(
+                Category.id.in_(all_valid_category_ids)
+            )
+        else:
+            # Если нет категорий с нужным gender, возвращаем пустой результат
+            query = query.filter(Product.id == -1)  # Невозможное условие
     
     # Фильтрация по категории (slug)
     if itemCategory:
-        query = query.join(Category).filter(Category.slug == itemCategory)
+        # Если уже есть join с Category, используем его, иначе делаем новый join
+        if not itemGender:
+            query = query.join(Category)
+        query = query.filter(Category.slug == itemCategory)
     
     # Подсчет общего количества
     total_count = query.count()
@@ -98,22 +145,46 @@ async def get_products(
     # Пагинация
     products = query.offset(page * limit).limit(limit).all()
     
+    # Применяем переводы к товарам
+    translated_products = []
+    for product in products:
+        translated = get_translated_product(product, lang)
+        # Добавляем остальные поля
+        translated['variants'] = product.variants
+        translated['category'] = product.category
+        translated['created_at'] = product.created_at
+        translated['updated_at'] = product.updated_at
+        translated_products.append(translated)
+    
     return {
-        "data": products,
+        "data": translated_products,
         "count": total_count,
         "page": page,
         "limit": limit
     }
 
 @router.get("/{product_id}", response_model=ProductSchema)
-async def get_product(product_id: int, db: Session = Depends(get_db)):
+async def get_product(
+    product_id: int, 
+    lang: str = Query('ru', description="Language code (ru, uz, en, es)"),
+    db: Session = Depends(get_db)
+):
     """
-    Получить товар по ID
+    Получить товар по ID с переводами
     """
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    return product
+    
+    # Применяем переводы
+    translated = get_translated_product(product, lang)
+    # Добавляем остальные поля
+    translated['variants'] = product.variants
+    translated['category'] = product.category
+    translated['created_at'] = product.created_at
+    translated['updated_at'] = product.updated_at
+    
+    return translated
 
 @router.put("/{product_id}", response_model=ProductSchema)
 async def update_product(
@@ -161,8 +232,18 @@ async def update_product(
     
     # Обновление вариантов (если предоставлены)
     if product_update.variants is not None:
+        # Получаем старые варианты
+        old_variants = db.query(ProductVariant).filter(ProductVariant.product_id == product_id).all()
+        
+        # Удаляем изображения старых вариантов
+        for old_variant in old_variants:
+            db.query(ProductImage).filter(ProductImage.variant_id == old_variant.id).delete()
+        
         # Удаляем старые варианты
-        db.query(ProductVariant).filter(ProductVariant.product_id == product_id).delete()
+        for old_variant in old_variants:
+            db.delete(old_variant)
+        
+        db.flush()  # Применяем удаление перед созданием новых
         
         # Создаем новые варианты
         for variant_data in product_update.variants:
@@ -176,16 +257,18 @@ async def update_product(
                 size_stock=variant_data.size_stock or {}
             )
             db.add(new_variant)
-            db.flush()
+            db.flush()  # Получаем ID нового варианта
             
             # Добавляем изображения
-            for idx, image_url in enumerate(variant_data.images or []):
-                new_image = ProductImage(
-                    variant_id=new_variant.id,
-                    image_url=image_url,
-                    order=idx
-                )
-                db.add(new_image)
+            if variant_data.images:
+                for idx, image_url in enumerate(variant_data.images):
+                    if image_url:  # Проверяем, что URL не пустой
+                        new_image = ProductImage(
+                            variant_id=new_variant.id,
+                            image_url=image_url,
+                            order=idx
+                        )
+                        db.add(new_image)
     
     db.commit()
     db.refresh(product)

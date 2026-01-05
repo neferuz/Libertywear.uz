@@ -137,18 +137,17 @@ def get_favorites(request: Request, db: Session = Depends(get_db)):
                 image_url = None
                 price = None
                 
-                    if first_variant:
-                        price = first_variant.price
-                    # Пробуем получить изображение из варианта
-                    if first_variant.color_image:
-                        image_url = first_variant.color_image
-                    else:
-                        # Если нет color_image, получаем первое изображение из ProductImage
-                        first_image = db.query(ProductImage).filter(
-                            ProductImage.variant_id == first_variant.id
-                        ).order_by(ProductImage.order).first()
-                        if first_image:
-                            image_url = first_image.image_url
+                price = first_variant.price
+                # Пробуем получить изображение из варианта
+                if first_variant.color_image:
+                    image_url = first_variant.color_image
+                else:
+                    # Если нет color_image, получаем первое изображение из ProductImage
+                    first_image = db.query(ProductImage).filter(
+                        ProductImage.variant_id == first_variant.id
+                    ).order_by(ProductImage.order).first()
+                    if first_image:
+                        image_url = first_image.image_url
                 
                 favorite_data = FavoriteWithProduct(
                     id=favorite.id,

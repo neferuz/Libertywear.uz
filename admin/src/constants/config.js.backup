@@ -1,0 +1,28 @@
+// Автоматическое определение URL бэкенда
+const getBackendUrl = () => {
+  // Если открыто с домена admin.libertywear.uz (HTTPS), используем HTTPS API
+  if (window.location.hostname === 'admin.libertywear.uz') {
+    // Проверяем, используется ли HTTPS
+    if (window.location.protocol === 'https:') {
+      return 'https://api.libertywear.uz';
+    }
+    return 'http://api.libertywear.uz';
+  }
+  // Если открыто с IP адреса или другого домена, используем тот же протокол и хост
+  if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+    // Используем тот же протокол (http/https) и хост, но порт 8000 для прямого доступа
+    const protocol = window.location.protocol;
+    const hostname = window.location.hostname;
+    // Если это IP адрес, используем порт 8000
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(hostname)) {
+      return `${protocol}//${hostname}:8000`;
+    }
+    // Если это другой домен, пробуем api поддомен
+    return `${protocol}//api.${hostname}`;
+  }
+  // Иначе используем localhost
+  return 'http://localhost:8000';
+};
+
+export const BASE_URL = getBackendUrl();
+export const BASE_URL1 = getBackendUrl();

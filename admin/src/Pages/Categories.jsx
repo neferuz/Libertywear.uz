@@ -30,11 +30,13 @@ import {
   Select,
   FormLabel,
   Badge,
+  Checkbox,
 } from '@chakra-ui/react';
 import { useNavigate } from 'react-router-dom';
 import { FiPlus, FiEdit, FiTrash2, FiChevronDown, FiChevronUp, FiPackage, FiSave, FiUpload, FiLink, FiArrowRight } from 'react-icons/fi';
 import axios from 'axios';
 import { BASE_URL } from '../constants/config';
+import TranslationFields from '../Components/TranslationFields';
 
 const Categories = () => {
   const navigate = useNavigate();
@@ -42,6 +44,7 @@ const Categories = () => {
   const [expandedSubcategories, setExpandedSubcategories] = useState({});
 
   const [categories, setCategories] = useState([]);
+  const [originalCategories, setOriginalCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState(null);
   const [uploadingId, setUploadingId] = useState(null);
@@ -141,20 +144,86 @@ const Categories = () => {
     try {
       setSavingId(category.id);
       // Slug не отправляем - он будет сгенерирован автоматически на бэкенде из title
-      await axios.put(`${BASE_URL}/categories/${category.id}`, {
+      const saveData = {
         title: category.name || category.title,
         gender: category.gender,
         image: category.image,
         parent_id: category.parent_id,
         order: category.order || 0,
+        show_on_homepage: category.show_on_homepage || false,
+        title_translations: category.title_translations || { 
+          ru: category.title || category.name || '', 
+          uz: '', 
+          en: '', 
+          es: '' 
+        },
+      };
+      
+      // Логирование для отладки
+      console.log("Сохранение категории:", {
+        id: category.id,
+        title: saveData.title,
+        show_on_homepage: saveData.show_on_homepage
       });
+      
+      await axios.put(`${BASE_URL}/categories/${category.id}`, saveData);
+      
+      // Проверяем ответ сервера
+      const response = await axios.get(`${BASE_URL}/categories/${category.id}`);
+      console.log("Ответ сервера после сохранения:", {
+        id: response.data.id,
+        title: response.data.title || response.data.name,
+        show_on_homepage: response.data.show_on_homepage,
+        type: typeof response.data.show_on_homepage
+      });
+      
       toast({
         title: "Успешно",
-        description: "Категория сохранена",
+        description: category.show_on_homepage 
+          ? "Категория показывается на главной странице" 
+          : "Категория сохранена",
         status: "success",
         duration: 2000,
       });
-      fetchCategories();
+      // Сохраняем состояние галочки перед загрузкой данных
+      const savedShowOnHomepage = category.show_on_homepage || false;
+      
+      // Обновляем состояние категории сразу, чтобы галочка не исчезла
+      setCategories(prev =>
+        prev.map(cat =>
+          cat.id === category.id
+            ? { ...cat, show_on_homepage: savedShowOnHomepage }
+            : cat
+        )
+      );
+      
+      // Загружаем обновленные данные с сервера
+      fetchCategories().then(() => {
+        // После загрузки проверяем и восстанавливаем состояние галочки, если нужно
+        setCategories(prev =>
+          prev.map(cat => {
+            if (cat.id === category.id) {
+              // Если сервер вернул show_on_homepage, используем его, иначе используем сохраненное значение
+              return { 
+                ...cat, 
+                show_on_homepage: cat.show_on_homepage !== undefined ? cat.show_on_homepage : savedShowOnHomepage
+              };
+            }
+            return cat;
+          })
+        );
+        
+        // Обновляем originalCategories с данными из обновленных categories
+        setCategories(currentCategories => {
+          setOriginalCategories(prev => {
+            return currentCategories.map(cat => {
+              const original = prev.find(p => p.id === cat.id);
+              return original ? { ...original, ...cat } : cat;
+            });
+          });
+          return currentCategories;
+        });
+      });
     } catch (err) {
       toast({
         title: "Ошибка",
@@ -168,8 +237,23 @@ const Categories = () => {
   };
 
   const handleEditCategory = (category) => {
-    setEditingCategory({ ...category });
-    setIsSubcategory(false);
+    // Определяем, является ли это подкатегорией (имеет parent_id)
+    const isSub = !!category.parent_id;
+    
+    setEditingCategory({ 
+      ...category,
+      // Убеждаемся, что title_translations всегда есть и правильно инициализированы
+      title_translations: category.title_translations || { 
+        ru: category.title || category.name || '', 
+        uz: category.title_translations?.uz || '', 
+        en: category.title_translations?.en || '', 
+        es: category.title_translations?.es || '' 
+      },
+      // Для обратной совместимости
+      title: category.title || category.name || '',
+      name: category.title || category.name || '',
+    });
+    setIsSubcategory(isSub);
     onEditOpen();
   };
 
@@ -181,6 +265,7 @@ const Categories = () => {
       image: '',
       parent_id: parentCategory.id,
       order: (parentCategory.subcategories?.length || 0) + 1,
+      title_translations: { ru: '', uz: '', en: '', es: '' }
     });
     setIsSubcategory(true);
     onEditOpen();
@@ -190,6 +275,11 @@ const Categories = () => {
     try {
       // Убираем slug из данных - он будет сгенерирован автоматически на бэкенде
       const { slug, ...categoryData } = editingCategory;
+      
+      // Убеждаемся, что title_translations отправляется
+      if (!categoryData.title_translations) {
+        categoryData.title_translations = { ru: categoryData.title || '', uz: '', en: '', es: '' };
+      }
       
       if (editingCategory.id) {
         // Обновление существующей категории
@@ -256,7 +346,52 @@ const Categories = () => {
       setLoading(true);
       // Загружаем только главные категории (без parent_id)
       const res = await axios.get(`${BASE_URL}/categories/`);
-      setCategories(res.data || []);
+      
+      // Логирование для отладки
+      console.log("Загружены категории с сервера:", res.data.map(cat => ({
+        id: cat.id,
+        title: cat.title || cat.name,
+        show_on_homepage: cat.show_on_homepage,
+        type: typeof cat.show_on_homepage
+      })));
+      
+      // Обновляем categories данными с сервера
+      // Убеждаемся, что show_on_homepage правильно обрабатывается
+      // Функция для рекурсивной обработки категорий и их подкатегорий
+      const processCategory = (cat) => {
+        const processed = {
+          ...cat,
+          show_on_homepage: cat.show_on_homepage === true || 
+                           cat.show_on_homepage === 1 || 
+                           cat.show_on_homepage === "true" || 
+                           cat.show_on_homepage === "1" 
+                           ? true 
+                           : false,
+          // Убеждаемся, что title_translations всегда есть
+          title_translations: cat.title_translations || { 
+            ru: cat.title || cat.name || '', 
+            uz: '', 
+            en: '', 
+            es: '' 
+          },
+          // Для обратной совместимости
+          title: cat.title || cat.name || '',
+          name: cat.title || cat.name || '',
+        };
+        
+        // Обрабатываем подкатегории рекурсивно
+        if (cat.subcategories && Array.isArray(cat.subcategories)) {
+          processed.subcategories = cat.subcategories.map(processCategory);
+        }
+        
+        return processed;
+      };
+      
+      const categoriesWithDefaults = (res.data || []).map(processCategory);
+      
+      setCategories(categoriesWithDefaults);
+      // Обновляем originalCategories данными с сервера
+      setOriginalCategories(JSON.parse(JSON.stringify(categoriesWithDefaults)));
     } catch (err) {
       console.error('Не удалось загрузить категории', err);
       toast({
@@ -268,6 +403,23 @@ const Categories = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Функция для проверки, есть ли изменения в категории
+  const hasCategoryChanges = (category) => {
+    const original = originalCategories.find(cat => cat.id === category.id);
+    if (!original) return false;
+    
+    // Сравниваем основные поля, учитывая undefined/null
+    const currentShowOnHomepage = category.show_on_homepage || false;
+    const originalShowOnHomepage = original.show_on_homepage || false;
+    
+    return (
+      (currentShowOnHomepage !== originalShowOnHomepage) ||
+      (category.image !== original.image) ||
+      (category.order !== original.order) ||
+      (category.gender !== original.gender)
+    );
   };
 
   return (
@@ -471,6 +623,40 @@ const Categories = () => {
                 gap="10px"
                 onClick={(e) => e.stopPropagation()}
               >
+                
+                <Checkbox
+                  isChecked={category.show_on_homepage === true || category.show_on_homepage === 1 || category.show_on_homepage === "true"}
+                  onChange={(e) => {
+                    setCategories(prev =>
+                      prev.map(cat =>
+                        cat.id === category.id 
+                          ? { ...cat, show_on_homepage: e.target.checked }
+                          : cat
+                      )
+                    );
+                  }}
+                  colorScheme="black"
+                  size="md"
+                  fontSize="12px"
+                  onClick={(e) => e.stopPropagation()}
+                  borderColor="black"
+                  _hover={{ borderColor: "black" }}
+                  bg="white"
+                  px="8px"
+                  py="4px"
+                  borderRadius="6px"
+                  border="1px solid"
+                  borderColor="gray.300"
+                  _checked={{
+                    bg: "black",
+                    borderColor: "black",
+                    color: "white"
+                  }}
+                >
+                  <Text fontSize="12px" ml="8px" fontWeight="500">
+                    На главной
+                  </Text>
+                </Checkbox>
                 <Button
                   leftIcon={<FiSave />}
                   size="sm"
@@ -479,8 +665,10 @@ const Categories = () => {
                   fontSize="11px"
                   bg="black"
                   color="white"
-                  _hover={{ bg: "gray.800" }}
+                  _hover={{ bg: "gray.800", opacity: 1 }}
+                  _disabled={{ bg: "gray.300", color: "gray.500", opacity: 0.6, cursor: "not-allowed" }}
                   isLoading={savingId === category.id}
+                  isDisabled={!hasCategoryChanges(category) || savingId === category.id}
                   onClick={(e) => {
                     e.stopPropagation();
                     handleSaveCategory(category);
@@ -491,6 +679,7 @@ const Categories = () => {
                 >
                   Сохранить
                 </Button>
+                
                 <Button
                   leftIcon={<FiEdit />}
                   size="sm"
@@ -930,10 +1119,15 @@ const EditCategoryForm = ({ category, setCategory, categories, isSubcategory }) 
     setImagePreview(url);
   };
 
+  // Инициализируем переводы, если их нет
+  if (!category.title_translations) {
+    category.title_translations = { ru: category.title || '', uz: '', en: '', es: '' };
+  }
+
   return (
     <VStack spacing="20px" align="stretch">
       <Box>
-        <Text fontSize="12px" mb="5px">Название <Text as="span" color="red.500">*</Text></Text>
+        <Text fontSize="12px" mb="5px">Название (русский) <Text as="span" color="red.500">*</Text></Text>
         <Input
           value={category.title || ''}
           onChange={(e) => {
@@ -942,7 +1136,8 @@ const EditCategoryForm = ({ category, setCategory, categories, isSubcategory }) 
               ...category, 
               title: newTitle,
               // Автоматически генерируем slug из названия
-              slug: newTitle ? generateSlug(newTitle) : ''
+              slug: newTitle ? generateSlug(newTitle) : '',
+              title_translations: { ...category.title_translations, ru: newTitle }
             });
           }}
           placeholder="Название категории"
@@ -953,6 +1148,14 @@ const EditCategoryForm = ({ category, setCategory, categories, isSubcategory }) 
           </Text>
         )}
       </Box>
+
+      <TranslationFields
+        label="Название категории"
+        fieldName="title"
+        value={category.title_translations || { ru: category.title || '', uz: '', en: '', es: '' }}
+        onChange={(translations) => setCategory({ ...category, title_translations: translations })}
+        type="input"
+      />
 
       <Box>
         <Text fontSize="12px" mb="5px">Пол</Text>
@@ -975,6 +1178,21 @@ const EditCategoryForm = ({ category, setCategory, categories, isSubcategory }) 
             value={category.order || 0}
             onChange={(e) => setCategory({ ...category, order: parseInt(e.target.value) || 0 })}
           />
+        </Box>
+      )}
+
+      {!isSubcategory && (
+        <Box>
+          <Checkbox
+            isChecked={category.show_on_homepage || false}
+            onChange={(e) => setCategory({ ...category, show_on_homepage: e.target.checked })}
+            colorScheme="black"
+            size="md"
+          >
+            <Text fontSize="12px" ml="8px">
+              Показывать на главной странице
+            </Text>
+          </Checkbox>
         </Box>
       )}
 

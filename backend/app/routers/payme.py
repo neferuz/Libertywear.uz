@@ -27,83 +27,339 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/payme", tags=["payme"])
 
 # Конфигурация Payme (должна быть в .env или config)
-PAYME_MERCHANT_ID = os.getenv("PAYME_MERCHANT_ID", getattr(settings, "PAYME_MERCHANT_ID", None) or "308712129")
-PAYME_KEY = os.getenv("PAYME_KEY", getattr(settings, "PAYME_KEY", None) or "your_payme_key")
-PAYME_TEST_KEY = os.getenv("PAYME_TEST_KEY", getattr(settings, "PAYME_TEST_KEY", None) or "your_test_key")
+PAYME_MERCHANT_ID = os.getenv("PAYME_MERCHANT_ID", getattr(settings, "PAYME_MERCHANT_ID", None) or "69454dd1656e7b8e815da033")
+PAYME_CASHBOX_ID = os.getenv("PAYME_CASHBOX_ID", getattr(settings, "PAYME_CASHBOX_ID", None) or "69454dd1656e7b8e815da033")
+PAYME_KEY = os.getenv("PAYME_KEY", getattr(settings, "PAYME_KEY", None) or "@7wuy2MpOQc&YXhUYiwbHnwARtzJTUohtkxh")
+PAYME_TEST_KEY = os.getenv("PAYME_TEST_KEY", getattr(settings, "PAYME_TEST_KEY", None) or "P4@SxSpUsn4o@9xTAyoqUG3&FDwSHQe4Gbip")
 PAYME_ENDPOINT = os.getenv("PAYME_ENDPOINT", getattr(settings, "PAYME_ENDPOINT", None) or "https://checkout.paycom.uz/api")
+
+# Конфигурация YUSTEX (для работы через единый endpoint)
+YUSTEX_CASHBOX_ID = os.getenv("YUSTEX_CASHBOX_ID", getattr(settings, "YUSTEX_CASHBOX_ID", None) or "69454dd1656e7b8e815da033")
+YUSTEX_KEY = os.getenv("YUSTEX_KEY", getattr(settings, "YUSTEX_KEY", None) or "@7wuy2MpOQc&YXhUYiwbHnwARtzJTUohtkxh")
+YUSTEX_TEST_KEY = os.getenv("YUSTEX_TEST_KEY", getattr(settings, "YUSTEX_TEST_KEY", None) or "P4@SxSpUsn4o@9xTAyoqUG3&FDwSHQe4Gbip")
 
 def verify_payme_request(request: Request, body: dict) -> bool:
     """Проверка подписи запроса от Payme"""
     try:
         # Получаем заголовок Authorization
         auth_header = request.headers.get("Authorization", "")
+        
+        # Если заголовок отсутствует или пустой, возвращаем False
+        if not auth_header or not auth_header.strip():
+            logger.warning("Authorization header is missing or empty")
+            return False
+        
+        # Проверяем формат Basic Auth
         if not auth_header.startswith("Basic "):
+            logger.warning(f"Authorization header has wrong format: {auth_header[:20]}")
             return False
         
         # Декодируем Basic Auth (должен содержать merchant_id:key)
         import base64
-        encoded = auth_header.replace("Basic ", "")
-        decoded = base64.b64decode(encoded).decode("utf-8")
-        merchant_id, key = decoded.split(":", 1)
-        
-        # Проверяем merchant_id и key
-        if merchant_id != PAYME_MERCHANT_ID:
+        try:
+            encoded = auth_header.replace("Basic ", "").strip()
+            if not encoded:
+                logger.warning("Authorization header has empty encoded part")
+                return False
+            decoded = base64.b64decode(encoded).decode("utf-8")
+            if ":" not in decoded:
+                logger.warning("Authorization header does not contain ':' separator")
+                return False
+            merchant_id, key = decoded.split(":", 1)
+            
+            # Проверяем, что merchant_id и key не пустые
+            if not merchant_id or not merchant_id.strip():
+                logger.warning("Merchant ID is empty")
+                return False
+            if not key or not key.strip():
+                logger.warning("Key is empty")
+                return False
+        except (ValueError, UnicodeDecodeError, Exception) as e:
+            logger.warning(f"Error decoding Authorization header: {e}")
             return False
         
-        # В реальном приложении здесь должна быть проверка подписи
-        # Для тестирования можно использовать PAYME_TEST_KEY
-        return key == PAYME_KEY or key == PAYME_TEST_KEY
+        # Поддержка как Payme, так и YUSTEX через единый endpoint
+        # ВАЖНО: Payme Business всегда использует "Paycom" как login для Basic Auth
+        # Это должно быть ПЕРВЫМ, чтобы Paycom не попадал в блок is_payme
+        is_paycom_login = (merchant_id == "Paycom" or merchant_id.strip() == "Paycom")
+        
+        if is_paycom_login:
+            # Payme Business использует "Paycom" как login и прод ключ как password
+            # Согласно документации: login всегда "Paycom", password - прод ключ
+            key_clean = key.strip()
+            if not key_clean:
+                logger.warning("Paycom login: key is empty")
+                return False
+            
+            # Проверяем ключ против всех возможных ключей (PAYME_KEY, YUSTEX_KEY, тестовые ключи)
+            valid_keys = []
+            if PAYME_KEY and PAYME_KEY.strip():
+                valid_keys.append(PAYME_KEY.strip())
+            if YUSTEX_KEY and YUSTEX_KEY.strip():
+                valid_keys.append(YUSTEX_KEY.strip())
+            if PAYME_TEST_KEY and PAYME_TEST_KEY.strip():
+                valid_keys.append(PAYME_TEST_KEY.strip())
+            if YUSTEX_TEST_KEY and YUSTEX_TEST_KEY.strip():
+                valid_keys.append(YUSTEX_TEST_KEY.strip())
+            
+            if key_clean in valid_keys:
+                logger.info(f"Paycom login detected - key verified (matched one of {len(valid_keys)} valid keys)")
+                return True
+            else:
+                logger.warning(f"Paycom login: invalid key. Received: {key_clean[:20]}..., Expected one of: {[k[:20] + '...' if len(k) > 20 else k for k in valid_keys]}")
+                return False
+        
+        # Проверяем Payme (продакшн)
+        payme_expected_id = PAYME_CASHBOX_ID or PAYME_MERCHANT_ID
+        # Проверяем все возможные варианты merchant_id
+        is_payme = (
+            merchant_id == payme_expected_id or 
+            merchant_id == PAYME_MERCHANT_ID or 
+            merchant_id == PAYME_CASHBOX_ID or
+            merchant_id.strip() == payme_expected_id.strip() or
+            merchant_id.strip() == PAYME_MERCHANT_ID.strip() or
+            merchant_id.strip() == PAYME_CASHBOX_ID.strip()
+        )
+        
+        # Проверяем YUSTEX
+        is_yustex = (merchant_id == YUSTEX_CASHBOX_ID and YUSTEX_CASHBOX_ID)
+        
+        if not is_payme and not is_yustex:
+            logger.warning(f"Merchant ID mismatch: received={merchant_id}, expected Payme ({payme_expected_id}) or YUSTEX ({YUSTEX_CASHBOX_ID})")
+            return False
+        
+        # Проверяем ключ в зависимости от типа кассы
+        if is_payme:
+            # Для продакшн среды Payme проверяем ключи строго
+            # Проверяем, что ключи установлены и не являются значениями по умолчанию
+            valid_keys = []
+            if PAYME_KEY and PAYME_KEY != "your_payme_key" and PAYME_KEY.strip():
+                valid_keys.append(PAYME_KEY.strip())
+            if PAYME_TEST_KEY and PAYME_TEST_KEY != "your_test_key" and PAYME_TEST_KEY.strip():
+                valid_keys.append(PAYME_TEST_KEY.strip())
+            
+            logger.info(f"Payme authorization check: merchant_id={merchant_id}, expected={payme_expected_id}, valid_keys_count={len(valid_keys)}")
+            
+            if not valid_keys:
+                logger.warning(f"Payme keys are not configured properly. PAYME_KEY={bool(PAYME_KEY)}, PAYME_TEST_KEY={bool(PAYME_TEST_KEY)}")
+                return False
+            
+            # Строгая проверка ключа (без учета пробелов)
+            key_clean = key.strip()
+            key_valid = key_clean in valid_keys
+            
+            if not key_valid:
+                logger.warning(f"Payme key is invalid. Received merchant_id: {merchant_id}, key length: {len(key_clean)}, Expected keys: {[k[:10] + '...' if len(k) > 10 else k for k in valid_keys]}")
+                logger.warning(f"Received key (first 30 chars): {key_clean[:30]}...")
+                return False
+            
+            logger.info(f"Payme authorization successful: merchant_id={merchant_id}")
+            return True
+        elif is_yustex:
+            # Проверяем, что ключи установлены
+            valid_keys = []
+            if YUSTEX_KEY:
+                valid_keys.append(YUSTEX_KEY)
+            if YUSTEX_TEST_KEY:
+                valid_keys.append(YUSTEX_TEST_KEY)
+            
+            if not valid_keys:
+                logger.warning("Yustex keys are not configured properly")
+                return False
+            
+            key_valid = key in valid_keys
+            if not key_valid:
+                logger.warning(f"Yustex key is invalid. Received key: {key[:10]}...")
+            return key_valid
+        
+        # Если мы дошли сюда, значит что-то пошло не так
+        logger.warning("Authorization check reached unexpected code path")
+        return False
     except Exception as e:
         logger.error(f"Error verifying Payme request: {e}")
         return False
 
-def create_error_response(code: int, message: str, data: Any = None) -> PaymeResponse:
-    """Создание ответа с ошибкой"""
+def create_error_response(code: int, message: str, data: Any = None, request_id: Any = None) -> PaymeResponse:
+    """Создание ответа с ошибкой согласно спецификации Payme"""
+    # Согласно документации Payme, message должен быть объектом с локализованными текстами
+    # https://developer.help.paycom.uz/
     error = {
-        "code": code,
-        "message": message
+        "code": code
     }
+    
+    # Формируем локализованное сообщение
+    if code == -32504:
+        # Ошибка авторизации
+        error["message"] = {
+            "ru": "Недостаточно привилегий для выполнения метода",
+            "uz": "Metodni bajarish uchun yetarli huquqlar yo'q",
+            "en": "Insufficient privileges to execute method"
+        }
+    elif code == -31001:
+        # Неверная сумма
+        error["message"] = {
+            "ru": "Неверная сумма",
+            "uz": "Noto'g'ri summa",
+            "en": "Invalid amount"
+        }
+    elif code == -31050:
+        # Неверный формат данных
+        if isinstance(message, str):
+            error["message"] = {
+                "ru": message,
+                "uz": message,
+                "en": message
+            }
+        else:
+            error["message"] = {
+                "ru": "Неверный формат данных",
+                "uz": "Ma'lumotlar formati noto'g'ri",
+                "en": "Invalid data format"
+            }
+    elif code == -31003:
+        # Транзакция не найдена
+        error["message"] = {
+            "ru": "Транзакция не найдена",
+            "uz": "Tranzaksiya topilmadi",
+            "en": "Transaction not found"
+        }
+    elif code == -32601:
+        # Метод не найден
+        error["message"] = {
+            "ru": f"Метод не найден: {message}" if isinstance(message, str) and message else "Метод не найден",
+            "uz": f"Metod topilmadi: {message}" if isinstance(message, str) and message else "Metod topilmadi",
+            "en": f"Method not found: {message}" if isinstance(message, str) and message else "Method not found"
+        }
+    elif code == -32400:
+        # Системная ошибка
+        error["message"] = {
+            "ru": "Системная ошибка",
+            "uz": "Tizim xatosi",
+            "en": "System error"
+        }
+    else:
+        # Для других ошибок используем переданное сообщение
+        if isinstance(message, str):
+            error["message"] = {
+                "ru": message,
+                "uz": message,
+                "en": message
+            }
+        else:
+            error["message"] = {
+                "ru": "Ошибка",
+                "uz": "Xatolik",
+                "en": "Error"
+            }
+    
     if data:
         error["data"] = data
-    return PaymeResponse(error=error)
+    
+    # Создаем ответ с id, если он передан
+    response_dict = {"error": error}
+    if request_id is not None:
+        response_dict["id"] = request_id
+    
+    return PaymeResponse(**response_dict)
 
-def create_success_response(result: Dict[str, Any]) -> PaymeResponse:
+def create_success_response(result: Dict[str, Any], request_id: Any = None) -> PaymeResponse:
     """Создание успешного ответа"""
-    return PaymeResponse(result=result)
+    response_dict = {"result": result}
+    if request_id is not None:
+        response_dict["id"] = request_id
+    return PaymeResponse(**response_dict)
 
 @router.post("/merchant")
 async def payme_merchant(request: Request, db: Session = Depends(get_db)):
     """
     Основной эндпоинт для обработки запросов от Payme Merchant API
     """
+    # КРИТИЧЕСКИ ВАЖНО: Проверка авторизации должна быть ПЕРВОЙ и СТРОГОЙ
+    # При ЛЮБОЙ проблеме с авторизацией возвращаем -32504 ДО парсинга body
+    
+    logger.info("=== Payme request received ===")
+    logger.info(f"Request headers: {dict(request.headers)}")
+    logger.info(f"Request URL: {request.url}")
+    
+    # Шаг 1: Проверяем наличие заголовка Authorization
+    # ВАЖНО: Проверка авторизации ПЕРВАЯ, до парсинга body
+    # КРИТИЧЕСКИ ВАЖНО: Проверка должна быть ПЕРВОЙ и СТРОГОЙ
+    # Тестовая среда Payme для тестирования ошибки авторизации может НЕ отправлять заголовок
+    
+    # Получаем заголовок (проверяем оба варианта регистра)
+    auth_header = None
+    if "Authorization" in request.headers:
+        auth_header = request.headers["Authorization"]
+        logger.info("Found Authorization header (capitalized)")
+    elif "authorization" in request.headers:
+        auth_header = request.headers["authorization"]
+        logger.info("Found authorization header (lowercase)")
+    else:
+        logger.warning("Authorization header not found in request")
+    
+    # Шаг 1.5: Парсим body для извлечения request_id (нужен для ответов даже при ошибках)
+    # ВАЖНО: Читаем body только один раз, ДО проверки авторизации, чтобы иметь request_id
     try:
         body = await request.json()
-        
-        # Проверка подписи (опционально для тестирования)
-        # if not verify_payme_request(request, body):
-        #     return create_error_response(-32504, "Invalid authorization")
-        
+        request_id = body.get("id")  # Извлекаем id из запроса для включения в ответ
+    except Exception as e:
+        logger.error(f"Error parsing request body: {e}")
+        # Если не удалось распарсить body, возвращаем ошибку без id
+        return create_error_response(-32700, "Parse error", None, None)
+    
+    # Если заголовок отсутствует - сразу возвращаем ошибку
+    if not auth_header:
+        logger.error("❌ Authorization header MISSING - returning -32504")
+        return create_error_response(-32504, "Неверная авторизация", None, request_id)
+    
+    # Проверяем, что заголовок не пустой
+    auth_header_str = str(auth_header).strip()
+    if not auth_header_str:
+        logger.error("❌ Authorization header is EMPTY - returning -32504")
+        return create_error_response(-32504, "Неверная авторизация", None, request_id)
+    
+    # Шаг 2: Проверяем формат Basic Auth
+    auth_header_str = str(auth_header).strip()
+    if not auth_header_str.startswith("Basic "):
+        logger.error(f"❌ Authorization header wrong format: {auth_header_str[:30]} - returning -32504")
+        return create_error_response(-32504, "Неверная авторизация", None, request_id)
+    
+    # Шаг 3: Полная проверка авторизации
+    try:
+        auth_result = verify_payme_request(request, {})
+        if auth_result is not True:  # Явная проверка на True
+            logger.error("❌ Authorization verification FAILED - returning -32504")
+            return create_error_response(-32504, "Неверная авторизация", None, request_id)
+        logger.info("✓ Authorization verification PASSED")
+    except Exception as e:
+        logger.error(f"❌ Authorization check EXCEPTION: {e} - returning -32504")
+        return create_error_response(-32504, "Неверная авторизация", None, request_id)
+    
+    # Шаг 4: Обрабатываем методы только после успешной авторизации
+    try:
         method = body.get("method")
         params = body.get("params", {})
         
         if method == "CheckPerformTransaction":
-            return await check_perform_transaction(params, db)
+            return await check_perform_transaction(params, db, request_id)
         elif method == "CreateTransaction":
-            return await create_transaction(params, db)
+            return await create_transaction(params, db, request_id)
         elif method == "PerformTransaction":
-            return await perform_transaction(params, db)
+            return await perform_transaction(params, db, request_id)
         elif method == "CancelTransaction":
-            return await cancel_transaction(params, db)
+            return await cancel_transaction(params, db, request_id)
         elif method == "CheckTransaction":
-            return await check_transaction(params, db)
+            return await check_transaction(params, db, request_id)
+        elif method == "GetStatement":
+            return await get_statement(params, db, request_id)
         else:
-            return create_error_response(-32601, f"Method not found: {method}")
+            return create_error_response(-32601, f"Method not found: {method}", None, request_id)
     
     except Exception as e:
         logger.error(f"Error processing Payme request: {e}", exc_info=True)
-        return create_error_response(-32400, "System error", str(e))
+        return create_error_response(-32400, "System error", str(e), request_id)
 
-async def check_perform_transaction(params: dict, db: Session) -> PaymeResponse:
+async def check_perform_transaction(params: dict, db: Session, request_id: Any = None) -> PaymeResponse:
     """
     CheckPerformTransaction - проверка возможности выполнения транзакции
     """
@@ -111,32 +367,74 @@ async def check_perform_transaction(params: dict, db: Session) -> PaymeResponse:
         amount = params.get("amount")
         account = params.get("account", {})
         
+        # ВАЖНО: Порядок проверок должен быть:
+        # 1. Проверка наличия обязательных параметров account
+        # 2. Проверка существования заказа и соответствия user_id
+        # 3. Проверка суммы
+        
         # Проверяем наличие order_id в account
         order_id = account.get("order_id")
-        if not order_id:
-            return create_error_response(-31050, "Неверный формат данных", "order_id")
+        user_id = account.get("user_id")
         
-        # Преобразуем order_id в int если нужно
+        if not order_id:
+            return create_error_response(-31050, "Неверный формат данных", "order_id", request_id)
+        
+        # Преобразуем order_id в int
         try:
             order_id_int = int(order_id) if isinstance(order_id, str) else order_id
         except (ValueError, TypeError):
-            return create_error_response(-31050, "Неверный формат order_id", "order_id")
+            return create_error_response(-31050, "Неверный формат данных", "order_id", request_id)
         
-        # Проверяем сумму (должна быть больше 0)
-        if amount <= 0:
-            return create_error_response(-31001, "Неверная сумма")
+        # user_id опционален
+        user_id_int = None
+        if user_id:
+            try:
+                user_id_int = int(user_id) if isinstance(user_id, str) else user_id
+            except (ValueError, TypeError):
+                user_id_int = None
         
-        # Проверяем существование заказа
+        # Проверяем существование заказа ПЕРЕД проверкой суммы
         from app.models.order import Order
         order = db.query(Order).filter(Order.id == order_id_int).first()
         order_items = []
         
-        if order:
-            # Проверяем, что сумма заказа совпадает (с небольшой погрешностью)
-            order_amount_in_tiyin = int(order.total_amount * 100)
-            if abs(order_amount_in_tiyin - amount) > 100:  # Допускаем погрешность в 1 сум (100 тийин)
-                logger.warning(f"Amount mismatch: order={order_amount_in_tiyin}, requested={amount}")
-                # Не блокируем, но логируем
+        if not order:
+            # Заказ не найден - возвращаем ошибку неверного формата данных
+            logger.warning(f"Order not found: order_id={order_id_int}, user_id={user_id_int}")
+            return create_error_response(-31050, "Неверный формат данных", "order_id", request_id)
+        
+        # Проверяем, что заказ принадлежит указанному пользователю (только если user_id передан)
+        if user_id_int is not None and order.user_id != user_id_int:
+            # Заказ не принадлежит пользователю - возвращаем ошибку неверного формата данных
+            logger.warning(f"Order user mismatch: order.user_id={order.user_id}, requested user_id={user_id_int}, order_id={order_id_int}")
+            return create_error_response(-31050, "Неверный формат данных", "account", request_id)
+        
+        # Проверяем статус заказа
+        # Если заказ уже оплачен или отменен, возвращаем ошибку
+        if order.payment_status in ["paid", "cancelled"]:
+            logger.warning(f"Order already paid or cancelled: order_id={order_id_int}, payment_status={order.payment_status}")
+            return create_error_response(-31050, "Неверный формат данных", "account", request_id)
+        
+        # Проверяем, есть ли активная транзакция для этого заказа
+        # Если заказ уже имеет транзакцию в состоянии 1 (создана), возвращаем ошибку
+        existing_transaction = db.query(PaymeTransaction).filter(
+            PaymeTransaction.order_id == order_id_int,
+            PaymeTransaction.state == 1  # Транзакция создана, ожидает подтверждения
+        ).first()
+        
+        if existing_transaction:
+            logger.warning(f"Order already has active transaction: order_id={order_id_int}, transaction_id={existing_transaction.payme_transaction_id}")
+            return create_error_response(-31050, "Неверный формат данных", "account", request_id)
+        
+        # Проверяем сумму (должна быть больше 0)
+        if not amount or amount <= 0:
+            return create_error_response(-31001, "Неверная сумма", None, request_id)
+        
+        # Проверяем, что сумма заказа совпадает (с небольшой погрешностью)
+        order_amount_in_tiyin = int(order.total_amount * 100)
+        if abs(order_amount_in_tiyin - amount) > 100:  # Допускаем погрешность в 1 сум (100 тийин)
+            logger.warning(f"Amount mismatch: order={order_amount_in_tiyin}, requested={amount}")
+            return create_error_response(-31001, "Неверная сумма", None, request_id)
             
             # Получаем товары из заказа для детализации чека
             order_items = db.query(OrderItem).filter(OrderItem.order_id == order_id_int).all()
@@ -171,13 +469,13 @@ async def check_perform_transaction(params: dict, db: Session) -> PaymeResponse:
         
         allow = True
         
-        return create_success_response({"allow": allow, "detail": detail})
+        return create_success_response({"allow": allow, "detail": detail}, request_id)
     
     except Exception as e:
         logger.error(f"Error in CheckPerformTransaction: {e}")
-        return create_error_response(-32400, "System error", str(e))
+        return create_error_response(-32400, "System error", str(e), request_id)
 
-async def create_transaction(params: dict, db: Session) -> PaymeResponse:
+async def create_transaction(params: dict, db: Session, request_id: Any = None) -> PaymeResponse:
     """
     CreateTransaction - создание транзакции
     """
@@ -198,19 +496,76 @@ async def create_transaction(params: dict, db: Session) -> PaymeResponse:
                 "create_time": existing_transaction.create_time,
                 "transaction": str(existing_transaction.merchant_transaction_id or existing_transaction.id),
                 "state": existing_transaction.state
-            })
+            }, request_id)
+        
+        # ВАЖНО: Порядок проверок должен быть:
+        # 1. Проверка наличия обязательных параметров account
+        # 2. Проверка существования заказа
+        # 3. Проверка суммы
         
         # Проверяем account
         order_id = account.get("order_id")
         user_id = account.get("user_id")
         
-        if not order_id or not user_id:
-            return create_error_response(-31050, "Неверный формат данных", "account")
+        if not order_id:
+            return create_error_response(-31050, "Неверный формат данных", "order_id", request_id)
         
-        # Проверяем существование пользователя
-        user = db.query(User).filter(User.id == user_id).first()
-        if not user:
-            return create_error_response(-31050, "Пользователь не найден", "account.user_id")
+        # Преобразуем order_id в int
+        try:
+            order_id_int = int(order_id) if isinstance(order_id, str) else order_id
+        except (ValueError, TypeError):
+            return create_error_response(-31050, "Неверный формат данных", "order_id", request_id)
+        
+        # user_id опционален
+        user_id_int = None
+        if user_id:
+            try:
+                user_id_int = int(user_id) if isinstance(user_id, str) else user_id
+            except (ValueError, TypeError):
+                user_id_int = None
+        
+        # Проверяем существование заказа ПЕРЕД проверкой суммы
+        from app.models.order import Order
+        order = db.query(Order).filter(Order.id == order_id_int).first()
+        if not order:
+            # Заказ не найден - возвращаем ошибку неверного формата данных
+            return create_error_response(-31050, "Неверный формат данных", "account.order_id")
+        
+        # Проверяем, что заказ принадлежит указанному пользователю (только если user_id передан)
+        if user_id_int is not None and order.user_id != user_id_int:
+            # Заказ не принадлежит пользователю - возвращаем ошибку неверного формата данных
+            return create_error_response(-31050, "Неверный формат данных", "account", request_id)
+        
+        # Проверяем существование пользователя (только если user_id передан)
+        if user_id_int is not None:
+            user = db.query(User).filter(User.id == user_id_int).first()
+            if not user:
+                return create_error_response(-31050, "Неверный формат данных", "account.user_id", request_id)
+        
+        # Проверяем сумму (должна быть больше 0)
+        if not amount or amount <= 0:
+            return create_error_response(-31001, "Неверная сумма")
+        
+        # Проверяем, что сумма заказа совпадает (с небольшой погрешностью)
+        order_amount_in_tiyin = int(order.total_amount * 100)
+        if abs(order_amount_in_tiyin - amount) > 100:  # Допускаем погрешность в 1 сум (100 тийин)
+            logger.warning(f"Amount mismatch: order={order_amount_in_tiyin}, requested={amount}")
+            return create_error_response(-31001, "Неверная сумма")
+        
+        # Проверяем, есть ли уже активная транзакция для этого заказа
+        # Если заказ уже имеет транзакцию в состоянии 1 (создана), нельзя создавать новую
+        # НО: если это попытка создать транзакцию с другим payme_id для того же заказа
+        if order_id_int:
+            existing_order_transaction = db.query(PaymeTransaction).filter(
+                PaymeTransaction.order_id == order_id_int,
+                PaymeTransaction.state == 1,  # Транзакция создана, ожидает подтверждения
+                PaymeTransaction.payme_transaction_id != payme_id  # Исключаем текущую транзакцию
+            ).first()
+            
+            if existing_order_transaction:
+                # Для одноразового счета нельзя создавать новую транзакцию, если уже есть активная
+                # Код ошибки должен быть в диапазоне -31050 до -31099
+                return create_error_response(-31050, "Неверный формат данных", "order_id")
         
         # Создаем транзакцию
         merchant_transaction_id = f"ORDER_{order_id}_{int(time.time() * 1000)}"
@@ -241,7 +596,7 @@ async def create_transaction(params: dict, db: Session) -> PaymeResponse:
         db.rollback()
         return create_error_response(-32400, "System error", str(e))
 
-async def perform_transaction(params: dict, db: Session) -> PaymeResponse:
+async def perform_transaction(params: dict, db: Session, request_id: Any = None) -> PaymeResponse:
     """
     PerformTransaction - выполнение транзакции
     """
@@ -289,7 +644,7 @@ async def perform_transaction(params: dict, db: Session) -> PaymeResponse:
         db.rollback()
         return create_error_response(-32400, "System error", str(e))
 
-async def cancel_transaction(params: dict, db: Session) -> PaymeResponse:
+async def cancel_transaction(params: dict, db: Session, request_id: Any = None) -> PaymeResponse:
     """
     CancelTransaction - отмена транзакции
     """
@@ -304,12 +659,27 @@ async def cancel_transaction(params: dict, db: Session) -> PaymeResponse:
         if not transaction:
             return create_error_response(-31003, "Транзакция не найдена")
         
+        # Если транзакция уже отменена, возвращаем те же данные (идимпотентность)
+        if transaction.state == -1 or transaction.state == -2:
+            return create_success_response({
+                "transaction": str(transaction.merchant_transaction_id or transaction.id),
+                "cancel_time": transaction.cancel_time or int(time.time() * 1000),
+                "state": transaction.state
+            })
+        
+        # Определяем новое состояние в зависимости от текущего
         if transaction.state == 2:
-            # Транзакция уже выполнена
-            return create_error_response(-31007, "Заказ выполнен. Невозможно отменить транзакцию")
+            # Транзакция выполнена - отменяем с state = -2
+            new_state = -2
+        elif transaction.state == 1:
+            # Транзакция создана - отменяем с state = -1
+            new_state = -1
+        else:
+            # Транзакция в недопустимом состоянии
+            return create_error_response(-31008, "Невозможно выполнить данную операцию")
         
         # Отменяем транзакцию
-        transaction.state = -1 if reason == 4 else -2
+        transaction.state = new_state
         transaction.reason = reason
         transaction.cancel_time = int(time.time() * 1000)
         
@@ -332,7 +702,7 @@ async def cancel_transaction(params: dict, db: Session) -> PaymeResponse:
         db.rollback()
         return create_error_response(-32400, "System error", str(e))
 
-async def check_transaction(params: dict, db: Session) -> PaymeResponse:
+async def check_transaction(params: dict, db: Session, request_id: Any = None) -> PaymeResponse:
     """
     CheckTransaction - проверка статуса транзакции
     """
@@ -357,5 +727,72 @@ async def check_transaction(params: dict, db: Session) -> PaymeResponse:
     
     except Exception as e:
         logger.error(f"Error in CheckTransaction: {e}")
-        return create_error_response(-32400, "System error", str(e))
+        return create_error_response(-32400, "System error", str(e), request_id)
+
+async def get_statement(params: dict, db: Session, request_id: Any = None) -> PaymeResponse:
+    """
+    GetStatement - получение списка транзакций за период
+    """
+    try:
+        from_time = params.get("from")
+        to_time = params.get("to")
+        
+        if not from_time or not to_time:
+            return create_error_response(-32600, "Invalid params", None, request_id)
+        
+        # Получаем транзакции за указанный период
+        # Транзакции должны быть отсортированы по дате создания в порядке возрастания
+        transactions = db.query(PaymeTransaction).filter(
+            PaymeTransaction.create_time >= from_time,
+            PaymeTransaction.create_time <= to_time
+        ).order_by(PaymeTransaction.create_time.asc()).all()
+        
+        # Формируем список транзакций
+        transactions_list = []
+        for t in transactions:
+            transaction_data = {
+                "id": t.payme_transaction_id,
+                "time": t.create_time,
+                "amount": t.amount,
+                "account": t.account if t.account else {},
+                "create_time": t.create_time,
+                "transaction": str(t.merchant_transaction_id or t.id),
+                "state": t.state,
+                "reason": t.reason
+            }
+            
+            # perform_time должен быть timestamp в миллисекундах или 0
+            # По спецификации Payme:
+            # - Если транзакция выполнена (state=2) и есть perform_time → используем perform_time
+            # - Если транзакция выполнена (state=2), но perform_time отсутствует → используем create_time (транзакция была выполнена сразу)
+            # - Если транзакция отменена (state=-1/-2) и была выполнена до отмены → используем perform_time
+            # - Если транзакция не выполнена (state=1) или perform_time отсутствует → используем 0
+            if t.perform_time and t.perform_time > 0:
+                # Есть валидный perform_time
+                transaction_data["perform_time"] = t.perform_time
+            elif t.state == 2:
+                # Транзакция выполнена, но perform_time отсутствует - используем create_time
+                # (транзакция была выполнена сразу при создании)
+                transaction_data["perform_time"] = t.create_time
+            else:
+                # Транзакция не выполнена или perform_time отсутствует
+                transaction_data["perform_time"] = 0
+            
+            # cancel_time должен быть timestamp в миллисекундах или 0
+            # Если транзакция отменена, используем cancel_time
+            # Если не отменена, используем 0
+            if t.cancel_time and t.cancel_time > 0:
+                transaction_data["cancel_time"] = t.cancel_time
+            else:
+                transaction_data["cancel_time"] = 0
+            
+            transactions_list.append(transaction_data)
+        
+        return create_success_response({
+            "transactions": transactions_list
+        }, request_id)
+    
+    except Exception as e:
+        logger.error(f"Error in GetStatement: {e}")
+        return create_error_response(-32400, "System error", str(e), request_id)
 

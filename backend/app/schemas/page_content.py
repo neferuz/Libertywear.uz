@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Dict, Optional, List
 from datetime import datetime
 
 # About Schemas
@@ -9,6 +9,8 @@ class AboutSectionBase(BaseModel):
     image: Optional[str] = None
     reverse: bool = False
     order: int = 0
+    title_translations: Optional[Dict[str, str]] = None
+    description_translations: Optional[Dict[str, str]] = None
 
 class AboutSectionCreate(AboutSectionBase):
     pass
@@ -19,6 +21,8 @@ class AboutSectionUpdate(BaseModel):
     image: Optional[str] = None
     reverse: Optional[bool] = None
     order: Optional[int] = None
+    title_translations: Optional[Dict[str, str]] = None
+    description_translations: Optional[Dict[str, str]] = None
 
 class AboutSection(AboutSectionBase):
     id: int
@@ -59,6 +63,8 @@ class ContactInfoBase(BaseModel):
     content: str
     details: Optional[str] = None
     order: int = 0
+    title_translations: Optional[Dict[str, str]] = None
+    content_translations: Optional[Dict[str, str]] = None
 
 class ContactInfoCreate(ContactInfoBase):
     pass
@@ -69,6 +75,8 @@ class ContactInfoUpdate(BaseModel):
     content: Optional[str] = None
     details: Optional[str] = None
     order: Optional[int] = None
+    title_translations: Optional[Dict[str, str]] = None
+    content_translations: Optional[Dict[str, str]] = None
 
 class ContactInfo(ContactInfoBase):
     id: int
@@ -83,6 +91,8 @@ class FAQItemBase(BaseModel):
     question: str
     answer: str
     order: int = 0
+    question_translations: Optional[Dict[str, str]] = None
+    answer_translations: Optional[Dict[str, str]] = None
 
 class FAQItemCreate(FAQItemBase):
     pass
@@ -91,6 +101,8 @@ class FAQItemUpdate(BaseModel):
     question: Optional[str] = None
     answer: Optional[str] = None
     order: Optional[int] = None
+    question_translations: Optional[Dict[str, str]] = None
+    answer_translations: Optional[Dict[str, str]] = None
 
 class FAQItem(FAQItemBase):
     id: int

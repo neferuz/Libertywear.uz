@@ -8,10 +8,6 @@ from email.mime.multipart import MIMEMultipart
 from app.utils.email_template import get_verification_email_html, get_verification_email_text
 from app.config import settings
 import os
-from dotenv import load_dotenv
-
-# Загружаем переменные окружения из .env файла
-load_dotenv()
 
 def generate_verification_code(length: int = 5) -> str:
     """Генерация кода подтверждения (5 цифр)"""
@@ -26,13 +22,13 @@ async def send_verification_email(email: str, code: str) -> bool:
     Отправка кода подтверждения на email через SMTP
     """
     try:
-        # Настройки SMTP из переменных окружения
-        smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
-        smtp_port = int(os.getenv("SMTP_PORT", "587"))
-        smtp_user = os.getenv("SMTP_USER", "")
-        smtp_password = os.getenv("SMTP_PASSWORD", "")
-        smtp_from_email = os.getenv("SMTP_FROM_EMAIL", smtp_user)
-        smtp_from_name = os.getenv("SMTP_FROM_NAME", "Liberty")
+        # Настройки SMTP из settings (загружаются из .env)
+        smtp_host = settings.SMTP_HOST or "smtp.gmail.com"
+        smtp_port = settings.SMTP_PORT or 587
+        smtp_user = settings.SMTP_USER or ""
+        smtp_password = settings.SMTP_PASSWORD or ""
+        smtp_from_email = settings.SMTP_FROM_EMAIL or smtp_user
+        smtp_from_name = settings.SMTP_FROM_NAME or "Liberty"
         
         # Если SMTP не настроен, выводим в консоль для разработки
         if not smtp_user or not smtp_password:
@@ -77,6 +73,17 @@ async def send_verification_email(email: str, code: str) -> bool:
         print(f"[LIBERTY] Сообщение отправлено")
         
         server.quit()
+        
+        # Всегда выводим код в лог для отладки (на случай если письмо не придет)
+        import sys
+        print(f"\n{'='*70}")
+        print(f"📧 [LIBERTY] КОД ПОДТВЕРЖДЕНИЯ ОТПРАВЛЕН")
+        print(f"{'='*70}")
+        print(f"Email получателя: {email}")
+        print(f"Код подтверждения: {code}")
+        print(f"{'='*70}\n")
+        print(f"[LIBERTY] Код подтверждения для {email}: {code}", file=sys.stderr)
+        
         print(f"[LIBERTY] ✅ Email успешно отправлен на {email}")
         return True
         
@@ -89,7 +96,12 @@ async def send_verification_email(email: str, code: str) -> bool:
         print(f"Email: {email}")
         print(f"Код подтверждения: {code}")
         print(f"{'='*70}\n")
-        return True
+        import sys
+        print(f"[LIBERTY] Код подтверждения для {email}: {code}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        # Возвращаем False, но выводим код в консоль для разработки
+        return False
     except smtplib.SMTPException as e:
         # Другие SMTP ошибки
         print(f"\n{'='*70}")
@@ -99,7 +111,12 @@ async def send_verification_email(email: str, code: str) -> bool:
         print(f"Email: {email}")
         print(f"Код подтверждения: {code}")
         print(f"{'='*70}\n")
-        return True
+        import sys
+        print(f"[LIBERTY] Код подтверждения для {email}: {code}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        # Возвращаем False, но выводим код в консоль для разработки
+        return False
     except Exception as e:
         # В случае любой другой ошибки выводим код в консоль
         print(f"\n{'='*70}")
@@ -110,7 +127,10 @@ async def send_verification_email(email: str, code: str) -> bool:
         print(f"Email: {email}")
         print(f"Код подтверждения: {code}")
         print(f"{'='*70}\n")
+        import sys
+        print(f"[LIBERTY] Код подтверждения для {email}: {code}", file=sys.stderr)
         import traceback
         traceback.print_exc()
-        return True  # Возвращаем True, чтобы не блокировать регистрацию
+        # Возвращаем False при ошибках
+        return False
 

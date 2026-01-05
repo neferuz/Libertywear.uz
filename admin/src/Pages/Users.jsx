@@ -85,15 +85,39 @@ const Users = () => {
     const loadUsers = async () => {
       try {
         setLoading(true);
-        const res = await fetch(`${BASE_URL}/users`);
-        if (!res.ok) throw new Error('Не удалось загрузить пользователей');
+        setError(null);
+        console.log('Loading users from:', `${BASE_URL}/users/`);
+        const res = await fetch(`${BASE_URL}/users/`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        console.log('Response status:', res.status, res.statusText);
+        console.log('Response headers:', Object.fromEntries(res.headers.entries()));
+        
+        // Проверяем Content-Type перед парсингом JSON
+        const contentType = res.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          const text = await res.text();
+          console.error('Server returned non-JSON response. First 500 chars:', text.substring(0, 500));
+          throw new Error(`Сервер вернул неверный формат данных (${contentType || 'unknown'}). Проверьте URL: ${BASE_URL}/users/`);
+        }
+        
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({ detail: 'Не удалось загрузить пользователей' }));
+          throw new Error(errorData.detail || `Ошибка ${res.status}: ${res.statusText}`);
+        }
+        
         const data = await res.json();
-        setUsers(data);
+        setUsers(Array.isArray(data) ? data : []);
       } catch (err) {
+        console.error('Error loading users:', err);
         setError(err.message);
         toast({
           title: "Ошибка",
-          description: err.message,
+          description: err.message || "Не удалось загрузить пользователей",
           status: "error",
           duration: 3000,
           isClosable: true,

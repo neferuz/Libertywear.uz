@@ -23,9 +23,16 @@ class Settings(BaseSettings):
     
     # Payme Settings
     PAYME_MERCHANT_ID: Optional[str] = None
+    PAYME_CASHBOX_ID: Optional[str] = None
     PAYME_KEY: Optional[str] = None
     PAYME_TEST_KEY: Optional[str] = None
     PAYME_ENDPOINT: str = "https://checkout.paycom.uz/api"
+    
+    # YUSTEX Settings
+    YUSTEX_CASHBOX_ID: Optional[str] = None
+    YUSTEX_KEY: Optional[str] = None
+    YUSTEX_TEST_KEY: Optional[str] = None
+    YUSTEX_ENDPOINT: str = "https://checkout.paycom.uz/api"
     
     class Config:
         env_file = ".env"

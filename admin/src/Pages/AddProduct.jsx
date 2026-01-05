@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   Box, 
   Heading, 
@@ -23,10 +23,11 @@ import {
   Spinner
 } from '@chakra-ui/react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { FiArrowLeft, FiPlus, FiX, FiUpload } from 'react-icons/fi';
+import { FiArrowLeft, FiPlus, FiX, FiUpload, FiArrowUp, FiArrowDown } from 'react-icons/fi';
 import { useEffect } from 'react';
 import axios from 'axios';
 import { BASE_URL } from '../constants/config';
+import TranslationFields from '../Components/TranslationFields';
 
 const AddProduct = () => {
   const navigate = useNavigate();
@@ -37,6 +38,17 @@ const AddProduct = () => {
   const [formData, setFormData] = useState({
     name: '',
     description: '',
+    // Переводы
+    name_translations: {},
+    description_translations: {},
+    description_title_translations: {},
+    material_translations: {},
+    branding_translations: {},
+    packaging_translations: {},
+    size_guide_translations: {},
+    delivery_info_translations: {},
+    return_info_translations: {},
+    exchange_info_translations: {},
     category: '',
     subcategory: '',
     subSubcategory: '',
@@ -65,7 +77,27 @@ const AddProduct = () => {
     ]
   });
 
-  const availableSizes = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
+  // Взрослые размеры
+  const adultSizes = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
+  
+  // Детские размеры
+  const kidsSizes = [
+    '1 год (86 см)',
+    '2 года (92 см)',
+    '3 года (98 см)',
+    '4 года (104 см)',
+    '5 лет (110 см)',
+    '6 лет (118 см)',
+    '7 лет (122 см)',
+    '8 лет (128 см)',
+    '9 лет (134 см)',
+    '10 лет (140 см)',
+    '11 лет (146 см)',
+    '12 лет (152 см)',
+    '13 лет (158 см)',
+    '14 лет (164 см)'
+  ];
+  
   const [categories, setCategories] = useState([]);
   const [loadingCategories, setLoadingCategories] = useState(true);
 
@@ -95,33 +127,86 @@ const AddProduct = () => {
 
   // Загрузка данных товара при редактировании
   useEffect(() => {
-    if (isEditMode && id) {
-      // В реальном приложении здесь будет запрос к API для загрузки данных товара
-      // Пока используем мок данные
-      const mockProductData = {
-        name: 'WOOL BLEND JACKET',
-        description: 'Описание товара...',
-        category: '',
-        subcategory: '',
-        subSubcategory: '',
-        stock: '45',
-        sizes: ['S', 'M', 'L'],
-        variants: [
-          {
-            id: Date.now(),
-            colorName: 'Черный',
-            colorImage: null,
-            price: '299900',
-            stock: '20',
-            sizes: ['S', 'M', 'L'],
-            sizeStock: { 'S': 10, 'M': 15, 'L': 5 },
-            images: []
-          }
-        ]
-      };
-      
-      setFormData(mockProductData);
-    }
+    const fetchProduct = async () => {
+      if (isEditMode && id) {
+        try {
+          const response = await axios.get(`${BASE_URL}/products/${id}`);
+          const product = response.data;
+          
+          // Преобразуем данные из API в формат формы
+          const productData = {
+            name: product.name || '',
+            description: product.description || '',
+            name_translations: product.name_translations || {},
+            description_translations: product.description_translations || {},
+            description_title_translations: product.description_title_translations || {},
+            material_translations: product.material_translations || {},
+            branding_translations: product.branding_translations || {},
+            packaging_translations: product.packaging_translations || {},
+            size_guide_translations: product.size_guide_translations || {},
+            delivery_info_translations: product.delivery_info_translations || {},
+            return_info_translations: product.return_info_translations || {},
+            exchange_info_translations: product.exchange_info_translations || {},
+            category: product.category_id?.toString() || '',
+            subcategory: '',
+            subSubcategory: '',
+            stock: product.stock?.toString() || '0',
+            sizes: [],
+            description_title: product.description_title || '',
+            material: product.material || '',
+            branding: product.branding || '',
+            packaging: product.packaging || '',
+            size_guide: product.size_guide || '',
+            delivery_info: product.delivery_info || '',
+            return_info: product.return_info || '',
+            exchange_info: product.exchange_info || '',
+            variants: product.variants?.map((variant, index) => {
+              // Преобразуем изображения из API в формат формы
+              // Сортируем по полю order, если оно есть
+              const sortedImages = variant.images?.sort((a, b) => (a.order || 0) - (b.order || 0)) || [];
+              const variantImages = sortedImages.map((img, imgIndex) => ({
+                id: img.id || Date.now() + imgIndex,
+                file: null, // Файл не нужен, так как изображение уже загружено
+                preview: (() => { const url = img.image_url || img.url || ''; if (!url) return ''; return url.replace(/^http:\/\/147\.45\.155\.163:8000\/uploads/, 'https://libertywear.uz/uploads').replace(/^http:\/\/147\.45\.155\.163:8000/, 'https://libertywear.uz/api').replace(/^http:\/\//, 'https://'); })(), // Используем URL как preview
+                url: (() => { const url = img.image_url || img.url || ''; if (!url) return ''; return url.replace(/^http:\/\/147\.45\.155\.163:8000\/uploads/, 'https://libertywear.uz/uploads').replace(/^http:\/\/147\.45\.155\.163:8000/, 'https://libertywear.uz/api').replace(/^http:\/\//, 'https://'); })(), // Сохраняем оригинальный URL
+                order: img.order || imgIndex // Сохраняем порядок
+              })) || [];
+              
+              return {
+                id: variant.id || Date.now() + index,
+                colorName: variant.color_name || '',
+                colorImage: (() => { const url = variant.color_image || null; if (!url) return url; return url.replace(/^http:\/\/147\.45\.155\.163:8000\/uploads/, 'https://libertywear.uz/uploads').replace(/^http:\/\/147\.45\.155\.163:8000/, 'https://libertywear.uz/api').replace(/^http:\/\//, 'https://'); })(),
+                price: variant.price?.toString() || '0',
+                stock: variant.stock?.toString() || '0',
+                sizes: Array.isArray(variant.sizes) ? variant.sizes : [],
+                sizeStock: variant.size_stock && typeof variant.size_stock === 'object' ? variant.size_stock : {},
+                images: variantImages
+              };
+            }) || []
+          };
+          
+          // Убеждаемся, что все поля имеют значения (не undefined)
+          Object.keys(productData).forEach(key => {
+            if (productData[key] === undefined) {
+              productData[key] = '';
+            }
+          });
+          
+          setFormData(productData);
+        } catch (error) {
+          console.error('Ошибка загрузки товара:', error);
+          toast({
+            title: "Ошибка",
+            description: "Не удалось загрузить данные товара",
+            status: "error",
+            duration: 3000,
+            isClosable: true,
+          });
+        }
+      }
+    };
+    
+    fetchProduct();
   }, [isEditMode, id]);
 
   // Преобразование категорий в плоский список для выбора
@@ -174,14 +259,95 @@ const AddProduct = () => {
     return selectedCategoryItem.type;
   };
 
+  // Функция для определения доступных размеров в зависимости от категории
+  const getAvailableSizes = () => {
+    if (!formData.category || categories.length === 0) {
+      console.log('No category selected or categories not loaded, returning adult sizes');
+      return adultSizes;
+    }
+    
+    // Находим полную информацию о категории из categories
+    let categoryToCheck = null;
+    
+    // Ищем в главных категориях
+    categoryToCheck = categories.find(cat => cat.id.toString() === formData.category.toString());
+    
+    // Если не нашли, ищем в подкатегориях
+    if (!categoryToCheck) {
+      for (const cat of categories) {
+        if (cat.subcategories && Array.isArray(cat.subcategories)) {
+          const sub = cat.subcategories.find(sub => sub.id.toString() === formData.category.toString());
+          if (sub) {
+            categoryToCheck = sub;
+            break;
+          }
+        }
+      }
+    }
+    
+    if (!categoryToCheck) {
+      console.log('Category not found, returning adult sizes');
+      return adultSizes;
+    }
+    
+    // Проверяем gender категории
+    const gender = categoryToCheck.gender || '';
+    const title = (categoryToCheck.title || categoryToCheck.name || '').toLowerCase();
+    
+    console.log('Checking category:', {
+      id: categoryToCheck.id,
+      title: categoryToCheck.title || categoryToCheck.name,
+      gender: gender,
+      title_lower: title
+    });
+    
+    // Проверяем, детская ли это категория
+    const isKidsCategory = gender === 'kids' || 
+          gender === 'children' || 
+          gender === 'kid' ||
+          title.includes('дет') || 
+          title.includes('kid') || 
+          title.includes('children') ||
+          title.includes('bolalar') ||
+          title.includes('niños');
+    
+    if (isKidsCategory) {
+      console.log('Kids category detected, returning kids sizes');
+      return kidsSizes;
+    }
+    
+    console.log('Adult category, returning adult sizes');
+    return adultSizes;
+  };
+  
+  // Вычисляем доступные размеры с помощью useMemo для оптимизации
+  const availableSizes = useMemo(() => {
+    const sizes = getAvailableSizes();
+    console.log('Available sizes calculated:', {
+      category: formData.category,
+      sizesCount: sizes.length,
+      firstSize: sizes[0],
+      isKids: sizes === kidsSizes || (sizes.length > 0 && (sizes[0].includes('год') || sizes[0].includes('лет')))
+    });
+    return sizes;
+  }, [formData.category, categories]);
+
   const handleInputChange = (field, value) => {
     setFormData(prev => {
       const newData = { ...prev, [field]: value };
       
-      // При изменении категории сбрасываем подкатегории
+      // При изменении категории сбрасываем подкатегории и размеры
       if (field === 'category') {
         newData.subcategory = '';
         newData.subSubcategory = '';
+        // Сбрасываем размеры для главного товара
+        newData.sizes = [];
+        // Сбрасываем размеры для всех вариантов
+        newData.variants = newData.variants.map(variant => ({
+          ...variant,
+          sizes: [],
+          sizeStock: {}
+        }));
       }
       
       return newData;
@@ -296,6 +462,47 @@ const AddProduct = () => {
     }));
   };
 
+  const handleMoveImageUp = (variantId, imageIndex) => {
+    if (imageIndex === 0) return; // Уже первое изображение
+    
+    setFormData(prev => ({
+      ...prev,
+      variants: prev.variants.map(variant =>
+        variant.id === variantId
+          ? {
+              ...variant,
+              images: variant.images.map((img, idx) => {
+                if (idx === imageIndex) return variant.images[imageIndex - 1];
+                if (idx === imageIndex - 1) return variant.images[imageIndex];
+                return img;
+              })
+            }
+          : variant
+      )
+    }));
+  };
+
+  const handleMoveImageDown = (variantId, imageIndex) => {
+    setFormData(prev => ({
+      ...prev,
+      variants: prev.variants.map(variant => {
+        if (variant.id === variantId) {
+          if (imageIndex === variant.images.length - 1) return variant; // Уже последнее изображение
+          
+          return {
+            ...variant,
+            images: variant.images.map((img, idx) => {
+              if (idx === imageIndex) return variant.images[imageIndex + 1];
+              if (idx === imageIndex + 1) return variant.images[imageIndex];
+              return img;
+            })
+          };
+        }
+        return variant;
+      })
+    }));
+  };
+
   const uploadSingleImage = async (file) => {
     try {
       const formData = new FormData();
@@ -404,11 +611,37 @@ const AddProduct = () => {
       // Загружаем изображения для всех вариантов
       const variantsWithImages = await Promise.all(
         formData.variants.map(async (variant) => {
-          const imageUrls = await uploadImages(variant.images.map(img => img.file));
+          // Разделяем изображения на новые (с file) и существующие (с url)
+          const newImages = variant.images.filter(img => img.file);
+          const existingImages = variant.images.filter(img => !img.file && img.url);
           
-          // Загружаем color_image если он есть
-          let colorImageUrl = null;
-          if (variant.colorImage && variant.colorImage.file) {
+          // Загружаем только новые изображения
+          const newImageUrls = await uploadImages(newImages.map(img => img.file));
+          
+          // Собираем все URL в правильном порядке (порядок определяется порядком в массиве variant.images)
+          // Порядок важен - первое изображение будет главным на карточке товара
+          const allImageUrls = variant.images.map(img => {
+            if (img.file) {
+              // Новое изображение - находим его URL в загруженных
+              const index = newImages.findIndex(newImg => newImg.file === img.file);
+              const url = newImageUrls[index];
+              // Если URL содержит BASE_URL, оставляем как есть (это полный URL)
+              return url;
+            } else {
+              // Существующее изображение - используем его URL
+              let url = img.url || img.preview || '';
+              // Если URL содержит BASE_URL, это уже полный URL, оставляем как есть
+              // Если это относительный путь, добавляем BASE_URL
+              if (url && !url.startsWith('http')) {
+                url = url.startsWith('/') ? `${BASE_URL}${url}` : `${BASE_URL}/${url}`;
+              }
+              return url;
+            }
+          }).filter(url => url && url.trim()); // Убираем пустые значения
+          
+          // Загружаем color_image если он есть (новый файл)
+          let colorImageUrl = variant.colorImage;
+          if (variant.colorImage && typeof variant.colorImage === 'object' && variant.colorImage.file) {
             colorImageUrl = await uploadSingleImage(variant.colorImage.file);
           }
           
@@ -419,7 +652,7 @@ const AddProduct = () => {
             stock: parseInt(variant.stock) || 0,
             sizes: variant.sizes || [],
             size_stock: variant.sizeStock || {},
-            images: imageUrls
+            images: allImageUrls
           };
         })
       );
@@ -428,6 +661,16 @@ const AddProduct = () => {
       const productData = {
         name: formData.name,
         description: formData.description,
+        name_translations: formData.name_translations,
+        description_translations: formData.description_translations,
+        description_title_translations: formData.description_title_translations,
+        material_translations: formData.material_translations,
+        branding_translations: formData.branding_translations,
+        packaging_translations: formData.packaging_translations,
+        size_guide_translations: formData.size_guide_translations,
+        delivery_info_translations: formData.delivery_info_translations,
+        return_info_translations: formData.return_info_translations,
+        exchange_info_translations: formData.exchange_info_translations,
         category_id: parseInt(formData.category),
         stock: parseInt(formData.stock) || 0,
         description_title: formData.description_title || null,
@@ -443,8 +686,8 @@ const AddProduct = () => {
 
       // Отправка на бэкенд
       const response = isEditMode 
-        ? await axios.put(`${BASE_URL}/cloths/${id}`, productData)
-        : await axios.post(`${BASE_URL}/cloths`, productData);
+        ? await axios.put(`${BASE_URL}/products/${id}`, productData)
+        : await axios.post(`${BASE_URL}/products`, productData);
       
       toast({
         title: "Успешно",
@@ -537,9 +780,16 @@ const AddProduct = () => {
                   Название товара *
                 </FormLabel>
                 <Input
-                  value={formData.name}
-                  onChange={(e) => handleInputChange('name', e.target.value)}
-                  placeholder="Например: WOOL BLEND JACKET"
+                  value={formData.name || ''}
+                onChange={(e) => {
+                  const newName = e.target.value;
+                  handleInputChange('name', newName);
+                  setFormData(prev => ({
+                    ...prev,
+                    name_translations: { ...prev.name_translations, ru: newName }
+                  }));
+                }}
+                placeholder="Например: WOOL BLEND JACKET (русский вариант)"
                   borderRadius="0"
                   borderColor="black"
                   borderBottom="1px solid"
@@ -552,6 +802,14 @@ const AddProduct = () => {
                 />
               </FormControl>
 
+              <TranslationFields
+                label="Название товара"
+                fieldName="name"
+                value={formData.name_translations || { ru: formData.name || '', uz: '', en: '', es: '' }}
+                onChange={(translations) => setFormData(prev => ({ ...prev, name_translations: translations }))}
+                type="input"
+              />
+
               <FormControl>
                 <FormLabel
                   fontSize="12px"
@@ -563,8 +821,15 @@ const AddProduct = () => {
                   Описание
                 </FormLabel>
                 <Textarea
-                  value={formData.description}
-                  onChange={(e) => handleInputChange('description', e.target.value)}
+                  value={formData.description || ''}
+                  onChange={(e) => {
+                    const newDesc = e.target.value;
+                    handleInputChange('description', newDesc);
+                    setFormData(prev => ({
+                      ...prev,
+                      description_translations: { ...prev.description_translations, ru: newDesc }
+                    }));
+                  }}
                   placeholder="Описание товара..."
                   borderRadius="0"
                   borderColor="black"
@@ -574,6 +839,14 @@ const AddProduct = () => {
                   rows={5}
                 />
               </FormControl>
+
+              <TranslationFields
+                label="Описание"
+                fieldName="description"
+                value={formData.description_translations || { ru: formData.description || '', uz: '', en: '', es: '' }}
+                onChange={(translations) => setFormData(prev => ({ ...prev, description_translations: translations }))}
+                type="textarea"
+              />
 
               <FormControl>
                 <FormLabel
@@ -587,7 +860,7 @@ const AddProduct = () => {
                 </FormLabel>
                 <Input
                   type="number"
-                  value={formData.stock}
+                  value={formData.stock || ''}
                   onChange={(e) => handleInputChange('stock', e.target.value)}
                   placeholder="100"
                   borderRadius="0"
@@ -633,7 +906,7 @@ const AddProduct = () => {
                   </Flex>
                 ) : (
                   <Select
-                    value={formData.category}
+                    value={formData.category || ''}
                     onChange={(e) => handleInputChange('category', e.target.value)}
                     placeholder="Выберите категорию или подкатегорию"
                     borderRadius="0"
@@ -678,11 +951,18 @@ const AddProduct = () => {
                   textTransform="uppercase"
                   mb="10px"
                 >
-                  Заголовок описания
+                  Заголовок описания (русский)
                 </FormLabel>
                 <Input
-                  value={formData.description_title}
-                  onChange={(e) => handleInputChange('description_title', e.target.value)}
+                  value={formData.description_title || ''}
+                  onChange={(e) => {
+                    const newTitle = e.target.value;
+                    handleInputChange('description_title', newTitle);
+                    setFormData(prev => ({
+                      ...prev,
+                      description_title_translations: { ...prev.description_title_translations, ru: newTitle }
+                    }));
+                  }}
                   placeholder="Например: Ozbekistan-это центр мира!"
                   borderRadius="0"
                   borderColor="black"
@@ -696,6 +976,14 @@ const AddProduct = () => {
                 />
               </FormControl>
 
+              <TranslationFields
+                label="Заголовок описания"
+                fieldName="description_title"
+                value={formData.description_title_translations || { ru: formData.description_title || '', uz: '', en: '', es: '' }}
+                onChange={(translations) => setFormData(prev => ({ ...prev, description_title_translations: translations }))}
+                type="input"
+              />
+
               <FormControl>
                 <FormLabel
                   fontSize="12px"
@@ -704,11 +992,18 @@ const AddProduct = () => {
                   textTransform="uppercase"
                   mb="10px"
                 >
-                  Материал
+                  Материал (русский)
                 </FormLabel>
                 <Textarea
-                  value={formData.material}
-                  onChange={(e) => handleInputChange('material', e.target.value)}
+                  value={formData.material || ''}
+                  onChange={(e) => {
+                    const newMaterial = e.target.value;
+                    handleInputChange('material', newMaterial);
+                    setFormData(prev => ({
+                      ...prev,
+                      material_translations: { ...prev.material_translations, ru: newMaterial }
+                    }));
+                  }}
                   placeholder="Например: 100% натуральный хлопок с начесом..."
                   borderRadius="0"
                   borderColor="black"
@@ -719,6 +1014,14 @@ const AddProduct = () => {
                 />
               </FormControl>
 
+              <TranslationFields
+                label="Материал"
+                fieldName="material"
+                value={formData.material_translations || { ru: formData.material || '', uz: '', en: '', es: '' }}
+                onChange={(translations) => setFormData(prev => ({ ...prev, material_translations: translations }))}
+                type="textarea"
+              />
+
               <FormControl>
                 <FormLabel
                   fontSize="12px"
@@ -727,11 +1030,18 @@ const AddProduct = () => {
                   textTransform="uppercase"
                   mb="10px"
                 >
-                  Брендинг
+                  Брендинг (русский)
                 </FormLabel>
                 <Textarea
-                  value={formData.branding}
-                  onChange={(e) => handleInputChange('branding', e.target.value)}
+                  value={formData.branding || ''}
+                  onChange={(e) => {
+                    const newBranding = e.target.value;
+                    handleInputChange('branding', newBranding);
+                    setFormData(prev => ({
+                      ...prev,
+                      branding_translations: { ...prev.branding_translations, ru: newBranding }
+                    }));
+                  }}
                   placeholder="Например: Уникальный принт «OZBEKISTAN»..."
                   borderRadius="0"
                   borderColor="black"
@@ -742,6 +1052,14 @@ const AddProduct = () => {
                 />
               </FormControl>
 
+              <TranslationFields
+                label="Брендинг"
+                fieldName="branding"
+                value={formData.branding_translations || { ru: formData.branding || '', uz: '', en: '', es: '' }}
+                onChange={(translations) => setFormData(prev => ({ ...prev, branding_translations: translations }))}
+                type="textarea"
+              />
+
               <FormControl>
                 <FormLabel
                   fontSize="12px"
@@ -750,11 +1068,18 @@ const AddProduct = () => {
                   textTransform="uppercase"
                   mb="10px"
                 >
-                  Упаковка
+                  Упаковка (русский)
                 </FormLabel>
                 <Textarea
-                  value={formData.packaging}
-                  onChange={(e) => handleInputChange('packaging', e.target.value)}
+                  value={formData.packaging || ''}
+                  onChange={(e) => {
+                    const newPackaging = e.target.value;
+                    handleInputChange('packaging', newPackaging);
+                    setFormData(prev => ({
+                      ...prev,
+                      packaging_translations: { ...prev.packaging_translations, ru: newPackaging }
+                    }));
+                  }}
                   placeholder="Например: Доставляется в фирменном пакете OZBE."
                   borderRadius="0"
                   borderColor="black"
@@ -765,6 +1090,14 @@ const AddProduct = () => {
                 />
               </FormControl>
 
+              <TranslationFields
+                label="Упаковка"
+                fieldName="packaging"
+                value={formData.packaging_translations || { ru: formData.packaging || '', uz: '', en: '', es: '' }}
+                onChange={(translations) => setFormData(prev => ({ ...prev, packaging_translations: translations }))}
+                type="textarea"
+              />
+
               <FormControl>
                 <FormLabel
                   fontSize="12px"
@@ -773,11 +1106,18 @@ const AddProduct = () => {
                   textTransform="uppercase"
                   mb="10px"
                 >
-                  Гид по размерам
+                  Гид по размерам (русский)
                 </FormLabel>
                 <Textarea
-                  value={formData.size_guide}
-                  onChange={(e) => handleInputChange('size_guide', e.target.value)}
+                  value={formData.size_guide || ''}
+                  onChange={(e) => {
+                    const newSizeGuide = e.target.value;
+                    handleInputChange('size_guide', newSizeGuide);
+                    setFormData(prev => ({
+                      ...prev,
+                      size_guide_translations: { ...prev.size_guide_translations, ru: newSizeGuide }
+                    }));
+                  }}
                   placeholder="Например: S - Обхват груди: 110-120 см&#10;M - Обхват груди: 120-130 см&#10;L - Обхват груди: 130-140 см"
                   borderRadius="0"
                   borderColor="black"
@@ -788,6 +1128,14 @@ const AddProduct = () => {
                 />
               </FormControl>
 
+              <TranslationFields
+                label="Гид по размерам"
+                fieldName="size_guide"
+                value={formData.size_guide_translations || { ru: formData.size_guide || '', uz: '', en: '', es: '' }}
+                onChange={(translations) => setFormData(prev => ({ ...prev, size_guide_translations: translations }))}
+                type="textarea"
+              />
+
               <FormControl>
                 <FormLabel
                   fontSize="12px"
@@ -796,11 +1144,18 @@ const AddProduct = () => {
                   textTransform="uppercase"
                   mb="10px"
                 >
-                  Информация о доставке
+                  Информация о доставке (русский)
                 </FormLabel>
                 <Textarea
-                  value={formData.delivery_info}
-                  onChange={(e) => handleInputChange('delivery_info', e.target.value)}
+                  value={formData.delivery_info || ''}
+                  onChange={(e) => {
+                    const newDeliveryInfo = e.target.value;
+                    handleInputChange('delivery_info', newDeliveryInfo);
+                    setFormData(prev => ({
+                      ...prev,
+                      delivery_info_translations: { ...prev.delivery_info_translations, ru: newDeliveryInfo }
+                    }));
+                  }}
                   placeholder="Например: Бесплатная стандартная доставка при заказе на сумму свыше 500,000 UZS..."
                   borderRadius="0"
                   borderColor="black"
@@ -811,6 +1166,14 @@ const AddProduct = () => {
                 />
               </FormControl>
 
+              <TranslationFields
+                label="Информация о доставке"
+                fieldName="delivery_info"
+                value={formData.delivery_info_translations || { ru: formData.delivery_info || '', uz: '', en: '', es: '' }}
+                onChange={(translations) => setFormData(prev => ({ ...prev, delivery_info_translations: translations }))}
+                type="textarea"
+              />
+
               <FormControl>
                 <FormLabel
                   fontSize="12px"
@@ -819,11 +1182,18 @@ const AddProduct = () => {
                   textTransform="uppercase"
                   mb="10px"
                 >
-                  Информация о возврате
+                  Информация о возврате (русский)
                 </FormLabel>
                 <Textarea
-                  value={formData.return_info}
-                  onChange={(e) => handleInputChange('return_info', e.target.value)}
+                  value={formData.return_info || ''}
+                  onChange={(e) => {
+                    const newReturnInfo = e.target.value;
+                    handleInputChange('return_info', newReturnInfo);
+                    setFormData(prev => ({
+                      ...prev,
+                      return_info_translations: { ...prev.return_info_translations, ru: newReturnInfo }
+                    }));
+                  }}
                   placeholder="Например: Вы можете вернуть товар в течение 30 дней..."
                   borderRadius="0"
                   borderColor="black"
@@ -834,6 +1204,14 @@ const AddProduct = () => {
                 />
               </FormControl>
 
+              <TranslationFields
+                label="Информация о возврате"
+                fieldName="return_info"
+                value={formData.return_info_translations || { ru: formData.return_info || '', uz: '', en: '', es: '' }}
+                onChange={(translations) => setFormData(prev => ({ ...prev, return_info_translations: translations }))}
+                type="textarea"
+              />
+
               <FormControl>
                 <FormLabel
                   fontSize="12px"
@@ -842,11 +1220,18 @@ const AddProduct = () => {
                   textTransform="uppercase"
                   mb="10px"
                 >
-                  Информация об обмене
+                  Информация об обмене (русский)
                 </FormLabel>
                 <Textarea
-                  value={formData.exchange_info}
-                  onChange={(e) => handleInputChange('exchange_info', e.target.value)}
+                  value={formData.exchange_info || ''}
+                  onChange={(e) => {
+                    const newExchangeInfo = e.target.value;
+                    handleInputChange('exchange_info', newExchangeInfo);
+                    setFormData(prev => ({
+                      ...prev,
+                      exchange_info_translations: { ...prev.exchange_info_translations, ru: newExchangeInfo }
+                    }));
+                  }}
                   placeholder="Например: Обмен товара возможен в течение 14 дней..."
                   borderRadius="0"
                   borderColor="black"
@@ -856,6 +1241,14 @@ const AddProduct = () => {
                   rows={3}
                 />
               </FormControl>
+
+              <TranslationFields
+                label="Информация об обмене"
+                fieldName="exchange_info"
+                value={formData.exchange_info_translations || { ru: formData.exchange_info || '', uz: '', en: '', es: '' }}
+                onChange={(translations) => setFormData(prev => ({ ...prev, exchange_info_translations: translations }))}
+                type="textarea"
+              />
             </VStack>
           </Box>
         </VStack>
@@ -930,7 +1323,7 @@ const AddProduct = () => {
                         Название цвета *
                       </FormLabel>
                       <Input
-                        value={variant.colorName}
+                        value={variant.colorName || ''}
                         onChange={(e) => handleVariantChange(variant.id, 'colorName', e.target.value)}
                         placeholder="Например: Черный"
                         borderRadius="0"
@@ -960,7 +1353,7 @@ const AddProduct = () => {
                       {variant.colorImage ? (
                         <Box position="relative" mb="10px">
                           <Image
-                            src={variant.colorImage.preview}
+                            src={typeof variant.colorImage === 'string' ? variant.colorImage : (variant.colorImage.preview || variant.colorImage.url || '')}
                             alt="Color preview"
                             borderRadius="10px"
                             objectFit="cover"
@@ -1039,7 +1432,7 @@ const AddProduct = () => {
                       </FormLabel>
                       <Input
                         type="number"
-                        value={variant.price}
+                        value={variant.price || ''}
                         onChange={(e) => handleVariantChange(variant.id, 'price', e.target.value)}
                         placeholder="299900"
                         borderRadius="0"
@@ -1065,9 +1458,14 @@ const AddProduct = () => {
                         mb="10px"
                       >
                         Размеры для этого цвета
+                        {availableSizes.length > 0 && (
+                          <Text as="span" fontSize="10px" color="gray.500" ml="10px" fontWeight="normal">
+                            ({availableSizes.length} размеров)
+                          </Text>
+                        )}
                       </FormLabel>
                       <Wrap spacing="10px" mb="15px">
-                        {availableSizes.map(size => (
+                        {availableSizes.length > 0 ? availableSizes.map(size => (
                           <WrapItem key={size}>
                             <Checkbox
                               isChecked={(variant.sizes || []).includes(size)}
@@ -1085,7 +1483,11 @@ const AddProduct = () => {
                               </Text>
                             </Checkbox>
                           </WrapItem>
-                        ))}
+                        )) : (
+                          <Text fontSize="11px" color="gray.500">
+                            Выберите категорию для отображения размеров
+                          </Text>
+                        )}
                       </Wrap>
 
                       {/* Stock by size */}
@@ -1166,19 +1568,77 @@ const AddProduct = () => {
 
                       {variant.images.length > 0 && (
                         <SimpleGrid columns={3} spacing="10px">
-                          {variant.images.map((image) => (
+                          {variant.images.map((image, imageIndex) => (
                             <Box key={image.id} position="relative">
                               <Image
-                                src={image.preview}
+                                src={image.preview || image.url || ''}
                                 alt="Preview"
                                 borderRadius="10px"
                                 objectFit="cover"
                                 w="100%"
                                 h="100px"
                               />
-                              <Button
+                              {/* Индикатор первой фотографии (главное изображение) */}
+                              {imageIndex === 0 && (
+                                <Box
+                                  position="absolute"
+                                  top="5px"
+                                  left="5px"
+                                  bg="black"
+                                  color="white"
+                                  px="6px"
+                                  py="2px"
+                                  borderRadius="4px"
+                                  fontSize="9px"
+                                  fontWeight="600"
+                                  letterSpacing="0.5px"
+                                >
+                                  ГЛАВНАЯ
+                                </Box>
+                              )}
+                              {/* Кнопки изменения порядка */}
+                              <VStack
                                 position="absolute"
                                 top="5px"
+                                right="5px"
+                                spacing="4px"
+                              >
+                                {imageIndex > 0 && (
+                                  <Button
+                                    size="xs"
+                                    bg="white"
+                                    color="black"
+                                    p="4px"
+                                    minW="24px"
+                                    h="24px"
+                                    borderRadius="4px"
+                                    onClick={() => handleMoveImageUp(variant.id, imageIndex)}
+                                    _hover={{ bg: "gray.100" }}
+                                    title="Переместить вверх"
+                                  >
+                                    <FiArrowUp size={12} />
+                                  </Button>
+                                )}
+                                {imageIndex < variant.images.length - 1 && (
+                                  <Button
+                                    size="xs"
+                                    bg="white"
+                                    color="black"
+                                    p="4px"
+                                    minW="24px"
+                                    h="24px"
+                                    borderRadius="4px"
+                                    onClick={() => handleMoveImageDown(variant.id, imageIndex)}
+                                    _hover={{ bg: "gray.100" }}
+                                    title="Переместить вниз"
+                                  >
+                                    <FiArrowDown size={12} />
+                                  </Button>
+                                )}
+                              </VStack>
+                              <Button
+                                position="absolute"
+                                bottom="5px"
                                 right="5px"
                                 size="xs"
                                 bg="red.500"
@@ -1224,9 +1684,14 @@ const AddProduct = () => {
                 mb="15px"
               >
                 Доступные размеры (для всех цветов)
+                {formData.category && availableSizes.length > 0 && (
+                  <Text as="span" fontSize="10px" color="gray.500" ml="10px" fontWeight="normal" fontStyle="normal">
+                    {availableSizes[0]?.includes('год') || availableSizes[0]?.includes('лет') ? '(Детские)' : '(Взрослые)'}
+                  </Text>
+                )}
               </FormLabel>
               <Wrap spacing="15px">
-                {availableSizes.map(size => (
+                {availableSizes.length > 0 ? availableSizes.map(size => (
                   <WrapItem key={size}>
                     <Checkbox
                       isChecked={formData.sizes.includes(size)}
@@ -1245,7 +1710,11 @@ const AddProduct = () => {
                       </Text>
                     </Checkbox>
                   </WrapItem>
-                ))}
+                )) : (
+                  <Text fontSize="11px" color="gray.500">
+                    Выберите категорию для отображения размеров
+                  </Text>
+                )}
               </Wrap>
               
               {formData.sizes.length > 0 && (

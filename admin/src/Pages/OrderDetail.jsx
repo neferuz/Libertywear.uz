@@ -46,7 +46,7 @@ const OrderDetail = () => {
       // Преобразуем данные из API в формат компонента
       const transformedOrder = {
         id: orderData.id,
-        orderId: `ORD-${orderData.id}`,
+        orderId: `Заказ №${orderData.id}`,
         date: orderData.created_at,
         customer: {
           id: orderData.user_id,
@@ -56,9 +56,9 @@ const OrderDetail = () => {
         },
         total: `${orderData.total_amount.toLocaleString('ru-RU')} UZS`,
         totalAmount: orderData.total_amount,
-        status: getStatusText(orderData.order_status),
+        status: getStatusText(orderData.order_status, orderData.payment_method, orderData.payment_status),
         statusKey: orderData.order_status,
-        paymentMethod: orderData.payment_method === 'cash' ? 'Наличные' : 'Payme',
+        paymentMethod: orderData.payment_method, // Сохраняем исходное значение
         paymentStatus: getPaymentStatusText(orderData.payment_status),
         paymentStatusKey: orderData.payment_status,
         deliveryAddress: orderData.address,
@@ -92,7 +92,17 @@ const OrderDetail = () => {
     }
   };
 
-  const getStatusText = (status) => {
+  const getStatusText = (status, paymentMethod, paymentStatus) => {
+    // Если Payme и не оплачено - показываем "Ожидает оплаты"
+    if (paymentMethod === 'payme' && paymentStatus === 'pending') {
+      return 'Ожидает оплаты';
+    }
+    
+    // Если наличные и статус pending - показываем "В обработке"
+    if (paymentMethod === 'cash' && status === 'pending') {
+      return 'В обработке';
+    }
+    
     const statusMap = {
       'pending': 'В обработке',
       'processing': 'В обработке',
@@ -245,7 +255,7 @@ const OrderDetail = () => {
                   Способ оплаты
                 </Text>
                 <Text fontSize="15px" fontWeight="500">
-                  {order.paymentMethod}
+                  {order.paymentMethod === 'cash' ? 'Наличные' : 'Payme'}
                 </Text>
               </VStack>
             </HStack>

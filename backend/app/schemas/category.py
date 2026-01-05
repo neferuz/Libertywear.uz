@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict
 from datetime import datetime
 
 class CategoryBase(BaseModel):
@@ -8,7 +8,9 @@ class CategoryBase(BaseModel):
     gender: Optional[str] = None
     image: Optional[str] = None
     parent_id: Optional[int] = None
+    title_translations: Optional[Dict[str, str]] = None
     order: int = 0
+    show_on_homepage: Optional[bool] = False
 
 class CategoryCreate(CategoryBase):
     pass
@@ -19,7 +21,9 @@ class CategoryUpdate(BaseModel):
     gender: Optional[str] = None
     image: Optional[str] = None
     parent_id: Optional[int] = None
+    title_translations: Optional[Dict[str, str]] = None
     order: Optional[int] = None
+    show_on_homepage: Optional[bool] = None
 
 class Category(CategoryBase):
     id: int

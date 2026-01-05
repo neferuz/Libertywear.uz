@@ -1,6 +1,7 @@
 # Dependencies
 node_modules/
 */node_modules/
+**/node_modules/
 
 # Python
 venv/
@@ -20,6 +21,7 @@ build/
 .env
 .env.local
 .env.*.local
+.env.backup
 
 # IDE
 .vscode/
@@ -35,8 +37,9 @@ Thumbs.db
 # Logs
 *.log
 logs/
+**/*.log
 
-# Database
+# Database (keep backup but not live DB)
 *.db
 *.sqlite
 *.sqlite3
@@ -44,6 +47,8 @@ logs/
 # Build outputs
 dist/
 build/
+.next/
+**/.next/
 *.map
 
 # Coverage
@@ -54,3 +59,6 @@ coverage/
 *.tmp
 *.temp
 
+# Server specific
+.server_ip
+health_check.log

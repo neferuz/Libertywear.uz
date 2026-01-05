@@ -1,0 +1,991 @@
+import { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Search, ShoppingCart, User, Menu, X, ChevronDown, ChevronRight, ArrowLeft } from 'lucide-react';
+import Link from 'next/link';
+import { CartModal } from './CartModal';
+import { SearchModal } from './SearchModal';
+import { CategoryMenu } from './CategoryMenu';
+import { useCart } from '@/context/CartContext';
+import { fetchCategories, Category as APICategory } from '@/lib/api';
+
+interface SubSubCategory {
+  id: number;
+  name: string;
+  href: string;
+}
+
+interface SubCategory {
+  id: number;
+  name: string;
+  href: string;
+  subSubCategories?: SubSubCategory[];
+}
+
+interface Category {
+  id: number;
+  name: string;
+  href: string;
+  subCategories: SubCategory[];
+}
+
+export function UrbanNavigation() {
+  const [isScrolled, setIsScrolled] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [languageOpen, setLanguageOpen] = useState(false);
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
+  const [selectedLanguage, setSelectedLanguage] = useState({ code: 'EN', name: 'English' });
+  const languageRef = useRef<HTMLDivElement>(null);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+
+  const [cartOpen, setCartOpen] = useState(false);
+  const cartRef = useRef<HTMLDivElement>(null);
+
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchRef = useRef<HTMLDivElement>(null);
+
+  const [hoveredCategory, setHoveredCategory] = useState<string | null>(null);
+  const categoryCloseTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Mobile menu navigation state
+  const [mobileMenuLevel, setMobileMenuLevel] = useState<'categories' | 'subcategories' | 'subsubcategories'>('categories');
+  const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
+  const [selectedSubCategory, setSelectedSubCategory] = useState<SubCategory | null>(null);
+
+  const { items, removeFromCart, updateQuantity, getTotalItems } = useCart();
+
+  const languages = [
+    { code: 'EN', name: 'English' },
+    { code: 'RU', name: 'Русский' },
+    { code: 'FR', name: 'Français' },
+    { code: 'DE', name: 'Deutsch' },
+  ];
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setIsScrolled(window.scrollY > 10);
+    };
+
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (languageRef.current && !languageRef.current.contains(event.target as Node)) {
+        setLanguageOpen(false);
+      }
+      if (moreMenuRef.current && !moreMenuRef.current.contains(event.target as Node)) {
+        setMoreMenuOpen(false);
+      }
+      // Убрали закрытие корзины по клику вне - теперь корзина закрывается только по кнопке X
+      // if (cartRef.current && !cartRef.current.contains(event.target as Node)) {
+      //   setCartOpen(false);
+      // }
+      if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
+        setSearchOpen(false);
+      }
+    };
+
+    if (languageOpen || moreMenuOpen || searchOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [languageOpen, moreMenuOpen, searchOpen]);
+
+
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (searchOpen) {
+          setSearchOpen(false);
+        } else if (mobileMenuOpen) {
+          if (mobileMenuLevel === 'categories') {
+            setMobileMenuOpen(false);
+          } else if (mobileMenuLevel === 'subcategories') {
+            setMobileMenuLevel('categories');
+            setSelectedCategory(null);
+          } else if (mobileMenuLevel === 'subsubcategories') {
+            setMobileMenuLevel('subcategories');
+            setSelectedSubCategory(null);
+          }
+        }
+      }
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [searchOpen, mobileMenuOpen, mobileMenuLevel]);
+
+  // Block body scroll when mobile menu is open
+  useEffect(() => {
+    if (mobileMenuOpen) {
+      const scrollY = window.scrollY;
+      document.body.style.position = 'fixed';
+      document.body.style.top = `-${scrollY}px`;
+      document.body.style.width = '100%';
+      document.body.style.overflow = 'hidden';
+    } else {
+      const scrollY = document.body.style.top;
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.width = '';
+      document.body.style.overflow = '';
+      if (scrollY) {
+        window.scrollTo(0, parseInt(scrollY || '0') * -1);
+      }
+      // Reset menu state when closing
+      setMobileMenuLevel('categories');
+      setSelectedCategory(null);
+      setSelectedSubCategory(null);
+    }
+    return () => {
+      document.body.style.position = '';
+      document.body.style.top = '';
+      document.body.style.width = '';
+      document.body.style.overflow = '';
+    };
+  }, [mobileMenuOpen]);
+
+  // State for categories loaded from API
+  const [categoriesData, setCategoriesData] = useState<Category[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(true);
+
+  // Transform API categories to component format
+  const transformCategory = (apiCat: APICategory): Category => {
+    const slug = apiCat.slug || apiCat.title.toLowerCase().replace(/\s+/g, '-');
+    
+    return {
+      id: apiCat.id,
+      name: apiCat.title.toUpperCase(),
+      href: `/category/${slug}`,
+      subCategories: apiCat.subcategories?.map((sub) => {
+        const subSlug = sub.slug || sub.title.toLowerCase().replace(/\s+/g, '-');
+        return {
+          id: sub.id,
+          name: sub.title,
+          href: `/category/${subSlug}`,
+          subSubCategories: sub.subcategories?.map((subsub) => {
+            const subsubSlug = subsub.slug || subsub.title.toLowerCase().replace(/\s+/g, '-');
+            return {
+              id: subsub.id,
+              name: subsub.title,
+              href: `/category/${subsubSlug}`,
+            };
+          }),
+        };
+      }) || [],
+    };
+  };
+
+  // Load categories from API
+  useEffect(() => {
+    const loadCategories = async () => {
+      try {
+        setCategoriesLoading(true);
+        console.log('Loading categories from API...');
+        const apiCategories = await fetchCategories('en');
+        
+        console.log('✅ Loaded categories from API:', apiCategories);
+        console.log('Number of categories:', apiCategories.length);
+        
+        if (!apiCategories || apiCategories.length === 0) {
+          console.warn('⚠️ No categories returned from API');
+          throw new Error('No categories found');
+        }
+        
+        // Transform all categories
+        const allTransformed = apiCategories.map((cat) => transformCategory(cat));
+        console.log('✅ Transformed categories:', allTransformed);
+        
+        // Try to find WOMEN, MEN, KIDS categories - be more flexible
+        let womenCat = allTransformed.find(c => {
+          const nameUpper = c.name.toUpperCase();
+          const apiCat = apiCategories.find(ac => ac.id === c.id);
+          return nameUpper.includes('WOMEN') || 
+                 nameUpper.includes('WOMAN') ||
+                 nameUpper === 'ЖЕНЩИНЫ' ||
+                 apiCat?.gender === 'female' ||
+                 apiCat?.gender === 'women' ||
+                 apiCat?.gender === 'woman';
+        });
+        
+        let menCat = allTransformed.find(c => {
+          const nameUpper = c.name.toUpperCase();
+          const apiCat = apiCategories.find(ac => ac.id === c.id);
+          return (nameUpper.includes('MEN') && !nameUpper.includes('WOMEN')) || 
+                 nameUpper.includes('MAN') ||
+                 nameUpper === 'МУЖЧИНЫ' ||
+                 apiCat?.gender === 'male' ||
+                 apiCat?.gender === 'men' ||
+                 apiCat?.gender === 'man';
+        });
+        
+        let kidsCat = allTransformed.find(c => {
+          const nameUpper = c.name.toUpperCase();
+          const apiCat = apiCategories.find(ac => ac.id === c.id);
+          return nameUpper.includes('KIDS') || 
+                 nameUpper.includes('KID') ||
+                 nameUpper.includes('CHILD') ||
+                 nameUpper.includes('CHILDREN') ||
+                 nameUpper === 'ДЕТИ' ||
+                 apiCat?.gender === 'kids' ||
+                 apiCat?.gender === 'children' ||
+                 apiCat?.gender === 'kid';
+        });
+        
+        console.log('Found categories:', { womenCat, menCat, kidsCat });
+        
+        // Build final categories array
+        const finalCategories: Category[] = [];
+        if (womenCat) {
+          console.log('✅ Adding WOMEN category:', womenCat);
+          finalCategories.push(womenCat);
+        }
+        if (menCat) {
+          console.log('✅ Adding MEN category:', menCat);
+          finalCategories.push(menCat);
+        }
+        if (kidsCat) {
+          console.log('✅ Adding KIDS category:', kidsCat);
+          finalCategories.push(kidsCat);
+        }
+        
+        // If we found WOMEN/MEN/KIDS, use them
+        if (finalCategories.length > 0) {
+          console.log('✅ Setting categories (WOMEN/MEN/KIDS):', finalCategories);
+          setCategoriesData(finalCategories);
+        } else if (allTransformed.length > 0) {
+          // Otherwise use ALL categories from API (not just first 3)
+          console.log('⚠️ WOMEN/MEN/KIDS not found, using ALL categories from API:', allTransformed);
+          setCategoriesData(allTransformed);
+        } else {
+          // Fallback - show at least something
+          console.warn('⚠️ No categories from API, using fallback');
+          setCategoriesData([
+            {
+              id: 1,
+              name: 'WOMEN',
+              href: '/category/women',
+              subCategories: [],
+            },
+            {
+              id: 2,
+              name: 'MEN',
+              href: '/category/men',
+              subCategories: [],
+            },
+            {
+              id: 3,
+              name: 'KIDS',
+              href: '/category/kids',
+              subCategories: [],
+            },
+          ]);
+        }
+      } catch (error) {
+        console.error('❌ Error loading categories:', error);
+        // Fallback to default categories if API fails
+        console.log('Using fallback categories');
+        setCategoriesData([
+          {
+            id: 1,
+            name: 'WOMEN',
+            href: '/category/women',
+            subCategories: [],
+          },
+          {
+            id: 2,
+            name: 'MEN',
+            href: '/category/men',
+            subCategories: [],
+          },
+          {
+            id: 3,
+            name: 'KIDS',
+            href: '/category/kids',
+            subCategories: [],
+          },
+        ]);
+      } finally {
+        setCategoriesLoading(false);
+      }
+    };
+
+    loadCategories();
+  }, []);
+
+  return (
+    <nav className="sticky top-0 z-50 bg-white">
+      <div className="max-w-[1600px] mx-auto px-6 lg:px-12">
+        <div className="flex items-center justify-between h-16 relative">
+          {/* Mobile: Left Side - Burger Menu & Search */}
+          <div className="lg:hidden flex items-center gap-3 z-10">
+            <button
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="text-black"
+            >
+              {mobileMenuOpen ? (
+                <X className="w-5 h-5" strokeWidth={1.5} />
+              ) : (
+                <Menu className="w-5 h-5" strokeWidth={1.5} />
+              )}
+            </button>
+            <button
+              onClick={() => setSearchOpen(true)}
+              className="text-black"
+            >
+              <Search className="w-5 h-5" strokeWidth={1.5} />
+            </button>
+          </div>
+
+          {/* Desktop: Category Links (Left) */}
+          <div className="hidden lg:flex items-center space-x-6 flex-1">
+            {categoriesLoading ? (
+              <div className="text-xs text-gray-400">Loading...</div>
+            ) : categoriesData.length > 0 ? (
+              categoriesData.map((category) => (
+              <div
+                key={category.id}
+                className="relative"
+                onMouseEnter={() => {
+                  if (categoryCloseTimeoutRef.current) {
+                    clearTimeout(categoryCloseTimeoutRef.current);
+                    categoryCloseTimeoutRef.current = null;
+                  }
+                  setHoveredCategory(category.name);
+                }}
+                onMouseLeave={() => {
+                  categoryCloseTimeoutRef.current = setTimeout(() => {
+                    setHoveredCategory(null);
+                  }, 150);
+                }}
+              >
+                <Link
+                  href={category.href}
+                  className="text-xs tracking-[0.12em] text-[#2c3b6e] hover:text-black transition-colors relative group block"
+                >
+                  <motion.span
+                    whileHover={{ y: -1 }}
+            transition={{ duration: 0.2 }}
+                  >
+                    {category.name}
+                    <motion.span
+                      className="absolute -bottom-1 left-0 h-px bg-[#2c3b6e] w-0 group-hover:w-full transition-all duration-300"
+                    />
+                  </motion.span>
+                </Link>
+
+                {/* Category Menu */}
+                <CategoryMenu
+                  category={category}
+                  isOpen={hoveredCategory === category.name}
+                  onClose={() => setHoveredCategory(null)}
+                  onMouseEnter={() => {
+                    if (categoryCloseTimeoutRef.current) {
+                      clearTimeout(categoryCloseTimeoutRef.current);
+                      categoryCloseTimeoutRef.current = null;
+                    }
+                    setHoveredCategory(category.name);
+                  }}
+                  onMouseLeave={() => {
+                    categoryCloseTimeoutRef.current = setTimeout(() => {
+                      setHoveredCategory(null);
+                    }, 150);
+                  }}
+                />
+              </div>
+            ))
+            ) : (
+              <div className="text-xs text-gray-400">No categories</div>
+            )}
+            {/* About Us Link */}
+            <Link
+              href="/about"
+              className="text-xs tracking-[0.12em] text-[#2c3b6e] hover:text-black transition-colors relative group"
+            >
+              <motion.span
+                whileHover={{ y: -1 }}
+                transition={{ duration: 0.2 }}
+              >
+                ABOUT US
+                <motion.span
+                  className="absolute -bottom-1 left-0 h-px bg-[#2c3b6e] w-0 group-hover:w-full transition-all duration-300"
+                />
+              </motion.span>
+            </Link>
+            {/* FAQs Link */}
+            <Link
+              href="/faq"
+              className="text-xs tracking-[0.12em] text-[#2c3b6e] hover:text-black transition-colors relative group"
+            >
+              <motion.span
+                whileHover={{ y: -1 }}
+                transition={{ duration: 0.2 }}
+              >
+                FAQs
+                <motion.span
+                  className="absolute -bottom-1 left-0 h-px bg-[#2c3b6e] w-0 group-hover:w-full transition-all duration-300"
+                />
+              </motion.span>
+            </Link>
+            {/* Contact Us Link */}
+            <Link
+              href="/contact"
+                className="text-xs tracking-[0.12em] text-[#2c3b6e] hover:text-black transition-colors relative group"
+            >
+              <motion.span
+                whileHover={{ y: -1 }}
+                transition={{ duration: 0.2 }}
+              >
+                CONTACT US
+                <motion.span
+                  className="absolute -bottom-1 left-0 h-px bg-[#2c3b6e] w-0 group-hover:w-full transition-all duration-300"
+                />
+              </motion.span>
+            </Link>
+          </div>
+
+          {/* Mobile: Logo (Center) */}
+          <Link
+            href="/"
+            className="flex-shrink-0 lg:hidden absolute left-1/2 -translate-x-1/2 z-10"
+          >
+            <motion.h1
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5 }}
+              className="text-xl tracking-[0.15em] text-[#2c3b6e] font-light"
+            >
+              LIBERTY
+            </motion.h1>
+          </Link>
+
+          {/* Desktop: Logo (Center) */}
+          <Link
+            href="/"
+            className="flex-shrink-0 hidden lg:block absolute left-1/2 -translate-x-1/2 z-10"
+          >
+            <motion.h1
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5 }}
+              className="text-2xl tracking-[0.15em] text-[#2c3b6e] font-light"
+            >
+              LIBERTY
+            </motion.h1>
+          </Link>
+
+          {/* Right: Icons */}
+          <div className="flex items-center gap-3 lg:gap-5">
+            {/* Desktop: Search Icon */}
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setSearchOpen(true)}
+              className="hidden lg:flex items-center justify-center text-black hover:text-gray-600 transition-colors h-6"
+            >
+              <Search className="w-[18px] h-[18px]" strokeWidth={1.5} />
+            </motion.button>
+
+            {/* Mobile: User Profile */}
+            <Link href="/login" className="lg:hidden">
+              <motion.button
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.95 }}
+                className="flex items-center justify-center text-black hover:text-gray-600 transition-colors h-6"
+              >
+                <User className="w-[18px] h-[18px]" strokeWidth={1.5} />
+              </motion.button>
+            </Link>
+
+            {/* Shopping Cart */}
+            <div
+              ref={cartRef}
+              className="relative flex items-center justify-center h-6"
+            >
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.95 }}
+                onClick={() => setCartOpen(!cartOpen)}
+                className="relative flex items-center justify-center text-black hover:text-gray-600 transition-colors"
+            >
+              <ShoppingCart className="w-[18px] h-[18px]" strokeWidth={1.5} />
+                {getTotalItems() > 0 && (
+                <motion.span
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  className="absolute -top-1.5 -right-1.5 bg-black text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px]"
+                >
+                    {getTotalItems()}
+                </motion.span>
+              )}
+            </motion.button>
+            </div>
+
+            {/* Mobile: Language Selector */}
+            <div className="lg:hidden relative flex items-center justify-center h-6" ref={moreMenuRef}>
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                onClick={() => setMoreMenuOpen(!moreMenuOpen)}
+                className="flex items-center justify-center space-x-1 text-xs tracking-wider text-black hover:text-gray-600 transition-colors h-full"
+              >
+                <span>{selectedLanguage.code}</span>
+                <ChevronDown className="w-3 h-3" strokeWidth={1.5} />
+              </motion.button>
+
+              {/* Language Dropdown */}
+              <AnimatePresence>
+                {moreMenuOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    transition={{ duration: 0.2 }}
+                    className="absolute top-full right-0 mt-2 bg-white border border-gray-200 shadow-lg min-w-[140px] z-50 rounded-lg overflow-hidden"
+                  >
+                    {languages.map((lang) => (
+                      <motion.button
+                        key={lang.code}
+                        whileHover={{ backgroundColor: '#f9fafb' }}
+                        onClick={() => {
+                          setSelectedLanguage(lang);
+                          setMoreMenuOpen(false);
+                        }}
+                        className={`w-full px-4 py-2 text-left text-xs tracking-wide transition-colors ${
+                          selectedLanguage.code === lang.code
+                            ? 'bg-gray-100 text-black'
+                            : 'text-gray-700 hover:text-black'
+                        }`}
+                      >
+                        {lang.name}
+                      </motion.button>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            {/* Desktop: User Profile */}
+            <Link href="/login">
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.95 }}
+                className="hidden lg:flex items-center justify-center text-black hover:text-gray-600 transition-colors h-6"
+            >
+              <User className="w-[18px] h-[18px]" strokeWidth={1.5} />
+            </motion.button>
+            </Link>
+
+            {/* Desktop: Language Selector */}
+            <div className="hidden lg:flex items-center justify-center relative h-6" ref={languageRef}>
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                onClick={() => setLanguageOpen(!languageOpen)}
+                className="flex items-center justify-center space-x-1 text-xs tracking-wider text-black hover:text-gray-600 transition-colors h-full"
+              >
+                <span>{selectedLanguage.code}</span>
+                <ChevronDown className="w-3 h-3" strokeWidth={1.5} />
+              </motion.button>
+
+              {/* Language Dropdown */}
+              <AnimatePresence>
+                {languageOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    transition={{ duration: 0.2 }}
+                    className="absolute top-full right-0 mt-2 bg-white border border-gray-200 shadow-lg min-w-[140px] z-50"
+                  >
+                    {languages.map((lang) => (
+                      <motion.button
+                        key={lang.code}
+                        whileHover={{ backgroundColor: '#f9fafb' }}
+                        onClick={() => {
+                          setSelectedLanguage(lang);
+                          setLanguageOpen(false);
+                        }}
+                        className={`w-full px-4 py-2.5 text-left text-xs tracking-wide transition-colors ${
+                          selectedLanguage.code === lang.code
+                            ? 'bg-gray-100 text-black'
+                            : 'text-gray-700 hover:text-black'
+                        }`}
+                      >
+                        {lang.name}
+                      </motion.button>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
+        </div>
+
+        {/* Full Screen Mobile Menu */}
+        <AnimatePresence>
+          {mobileMenuOpen && (
+            <>
+              {/* Backdrop */}
+            <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+              transition={{ duration: 0.3 }}
+                className="lg:hidden fixed inset-0 bg-black/20 backdrop-blur-sm z-40"
+                onClick={() => setMobileMenuOpen(false)}
+              />
+
+              {/* Menu Panel */}
+              <motion.div
+                initial={{ x: '-100%' }}
+                animate={{ x: 0 }}
+                exit={{ x: '-100%' }}
+                transition={{ 
+                  duration: 0.4, 
+                  ease: [0.25, 0.1, 0.25, 1],
+                  type: 'spring',
+                  stiffness: 300,
+                  damping: 30,
+                }}
+                className="lg:hidden fixed inset-0 bg-white z-50 flex flex-col overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Header */}
+                <motion.div
+                  initial={{ opacity: 0, y: -20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.1 }}
+                  className="flex items-center justify-between p-6 border-b border-gray-200"
+                >
+                  <div className="flex items-center space-x-4">
+                    {mobileMenuLevel !== 'categories' && (
+                      <motion.button
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.9 }}
+                        onClick={() => {
+                          if (mobileMenuLevel === 'subsubcategories') {
+                            setMobileMenuLevel('subcategories');
+                            setSelectedSubCategory(null);
+                          } else if (mobileMenuLevel === 'subcategories') {
+                            setMobileMenuLevel('categories');
+                            setSelectedCategory(null);
+                          }
+                        }}
+                        type="button"
+                        className="text-black hover:text-gray-600 transition-colors"
+                      >
+                        <ArrowLeft className="w-5 h-5" strokeWidth={1.5} />
+                      </motion.button>
+                    )}
+                    <h2 className="text-lg tracking-[0.12em] text-[#2c3b6e] font-medium">
+                      {mobileMenuLevel === 'categories' && 'MENU'}
+                      {mobileMenuLevel === 'subcategories' && selectedCategory?.name}
+                      {mobileMenuLevel === 'subsubcategories' && selectedSubCategory?.name}
+                    </h2>
+              </div>
+                  <motion.button
+                    whileHover={{ scale: 1.1, rotate: 90 }}
+                    whileTap={{ scale: 0.9 }}
+                    onClick={() => setMobileMenuOpen(false)}
+                    type="button"
+                    className="text-black hover:text-gray-600 transition-colors"
+                  >
+                    <X className="w-6 h-6" strokeWidth={1.5} />
+                  </motion.button>
+            </motion.div>
+
+                {/* Menu Content */}
+                <div className="flex-1 overflow-y-auto">
+                  <AnimatePresence mode="wait">
+                    {/* Categories Level */}
+                    {mobileMenuLevel === 'categories' && (
+                      <motion.div
+                        key="categories"
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: 20 }}
+                        transition={{ duration: 0.3, ease: [0.25, 0.1, 0.25, 1] }}
+                        className="p-6 space-y-1"
+                      >
+                        {categoriesData.map((category, index) => {
+                          const hasSubCategories = category.subCategories && category.subCategories.length > 0;
+                          
+                          return hasSubCategories ? (
+                            <motion.button
+                              key={category.id}
+                              initial={{ opacity: 0, x: -20 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              transition={{ 
+                                delay: index * 0.05, 
+                                duration: 0.3,
+                                ease: [0.25, 0.1, 0.25, 1],
+                              }}
+                              whileHover={{ x: 4, backgroundColor: '#f9fafb' }}
+                              whileTap={{ scale: 0.98 }}
+                              onClick={() => {
+                                setSelectedCategory(category);
+                                setMobileMenuLevel('subcategories');
+                              }}
+                              type="button"
+                              className="w-full flex items-center justify-between px-4 py-4 text-left text-sm tracking-[0.12em] text-[#2c3b6e] hover:text-black transition-colors rounded-lg"
+                            >
+                              <span className="font-medium">{category.name}</span>
+                              <ChevronRight className="w-5 h-5 text-gray-400" strokeWidth={1.5} />
+                            </motion.button>
+                          ) : (
+                            <Link key={category.id} href={category.href}>
+          <motion.div
+                                initial={{ opacity: 0, x: -20 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                transition={{ 
+                                  delay: index * 0.05, 
+                                  duration: 0.3,
+                                  ease: [0.25, 0.1, 0.25, 1],
+                                }}
+                                whileHover={{ x: 4, backgroundColor: '#f9fafb' }}
+                                whileTap={{ scale: 0.98 }}
+                                onClick={() => setMobileMenuOpen(false)}
+                                className="w-full flex items-center justify-between px-4 py-4 text-left text-sm tracking-[0.12em] text-[#2c3b6e] hover:text-black transition-colors rounded-lg"
+                              >
+                                <span className="font-medium">{category.name}</span>
+                              </motion.div>
+                            </Link>
+                          );
+                        })}
+
+                        {/* About Us Link */}
+                        <Link href="/about">
+                          <motion.div
+                            initial={{ opacity: 0, x: -20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ 
+                              delay: categoriesData.length * 0.05, 
+                              duration: 0.3,
+                              ease: [0.25, 0.1, 0.25, 1],
+                            }}
+                            whileHover={{ x: 4, backgroundColor: '#f9fafb' }}
+                            whileTap={{ scale: 0.98 }}
+                            onClick={() => setMobileMenuOpen(false)}
+                            className="w-full flex items-center justify-between px-4 py-4 text-left text-sm tracking-[0.12em] text-[#2c3b6e] hover:text-black transition-colors rounded-lg"
+                          >
+                            <span className="font-medium">ABOUT US</span>
+                          </motion.div>
+                        </Link>
+
+                        {/* FAQs Link */}
+                        <Link href="/faq">
+                          <motion.div
+                            initial={{ opacity: 0, x: -20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ 
+                              delay: (categoriesData.length + 1) * 0.05, 
+                              duration: 0.3,
+                              ease: [0.25, 0.1, 0.25, 1],
+                            }}
+                            whileHover={{ x: 4, backgroundColor: '#f9fafb' }}
+                            whileTap={{ scale: 0.98 }}
+                            onClick={() => setMobileMenuOpen(false)}
+                            className="w-full flex items-center justify-between px-4 py-4 text-left text-sm tracking-[0.12em] text-[#2c3b6e] hover:text-black transition-colors rounded-lg"
+                          >
+                            <span className="font-medium">FAQs</span>
+                          </motion.div>
+                        </Link>
+
+                        {/* Contact Us Link */}
+                        <Link href="/contact">
+                          <motion.div
+                            initial={{ opacity: 0, x: -20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ 
+                              delay: (categoriesData.length + 2) * 0.05, 
+                              duration: 0.3,
+                              ease: [0.25, 0.1, 0.25, 1],
+                            }}
+                            whileHover={{ x: 4, backgroundColor: '#f9fafb' }}
+                            whileTap={{ scale: 0.98 }}
+                            onClick={() => setMobileMenuOpen(false)}
+                            className="w-full flex items-center justify-between px-4 py-4 text-left text-sm tracking-[0.12em] text-[#2c3b6e] hover:text-black transition-colors rounded-lg"
+                          >
+                            <span className="font-medium">CONTACT US</span>
+                          </motion.div>
+                        </Link>
+
+                        {/* FAQs Link */}
+                        <Link href="/faq">
+                          <motion.div
+                            initial={{ opacity: 0, x: -20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ 
+                              delay: (categoriesData.length + 1) * 0.05, 
+                              duration: 0.3,
+                              ease: [0.25, 0.1, 0.25, 1],
+                            }}
+                            whileHover={{ x: 4, backgroundColor: '#f9fafb' }}
+                            whileTap={{ scale: 0.98 }}
+                            onClick={() => setMobileMenuOpen(false)}
+                            className="w-full flex items-center justify-between px-4 py-4 text-left text-sm tracking-[0.12em] text-[#2c3b6e] hover:text-black transition-colors rounded-lg"
+                          >
+                            <span className="font-medium">FAQs</span>
+                          </motion.div>
+                        </Link>
+
+                        {/* Contact Us Link */}
+                        <Link href="/contact">
+                          <motion.div
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                            transition={{ 
+                              delay: (categoriesData.length + 2) * 0.05, 
+                              duration: 0.3,
+                              ease: [0.25, 0.1, 0.25, 1],
+                            }}
+                            whileHover={{ x: 4, backgroundColor: '#f9fafb' }}
+                            whileTap={{ scale: 0.98 }}
+                  onClick={() => setMobileMenuOpen(false)}
+                            className="w-full flex items-center justify-between px-4 py-4 text-left text-sm tracking-[0.12em] text-[#2c3b6e] hover:text-black transition-colors rounded-lg"
+                          >
+                            <span className="font-medium">CONTACT US</span>
+                          </motion.div>
+                        </Link>
+
+                        {/* Language Selector */}
+                        <div className="mt-8 pt-6 border-t border-gray-200">
+                          <p className="text-xs text-gray-500 mb-3 tracking-wide px-4">LANGUAGE</p>
+                          <div className="space-y-1">
+                            {languages.map((lang, index) => (
+                              <motion.button
+                      key={lang.code}
+                                initial={{ opacity: 0, x: -20 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                transition={{ 
+                                  delay: categoriesData.length * 0.05 + index * 0.05, 
+                                  duration: 0.3,
+                                }}
+                                whileHover={{ x: 4, backgroundColor: '#f9fafb' }}
+                                whileTap={{ scale: 0.98 }}
+                      onClick={() => {
+                        setSelectedLanguage(lang);
+                        setMobileMenuOpen(false);
+                      }}
+                                type="button"
+                                className={`w-full px-4 py-3 text-left text-sm tracking-wide transition-colors rounded-lg ${
+                        selectedLanguage.code === lang.code
+                          ? 'bg-gray-100 text-black'
+                                    : 'text-gray-700 hover:text-black'
+                      }`}
+                    >
+                      {lang.name}
+                              </motion.button>
+                  ))}
+                </div>
+              </div>
+                      </motion.div>
+                    )}
+
+                    {/* Subcategories Level */}
+                    {mobileMenuLevel === 'subcategories' && selectedCategory && (
+                      <motion.div
+                        key="subcategories"
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: 20 }}
+                        transition={{ duration: 0.3, ease: [0.25, 0.1, 0.25, 1] }}
+                        className="p-6 space-y-1"
+                      >
+                        {selectedCategory.subCategories.map((subCategory, index) => (
+                          <motion.button
+                            key={subCategory.id}
+                            initial={{ opacity: 0, x: -20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ 
+                              delay: index * 0.05, 
+                              duration: 0.3,
+                              ease: [0.25, 0.1, 0.25, 1],
+                            }}
+                            whileHover={{ x: 4, backgroundColor: '#f9fafb' }}
+                            whileTap={{ scale: 0.98 }}
+                            onClick={() => {
+                              if (subCategory.subSubCategories && subCategory.subSubCategories.length > 0) {
+                                setSelectedSubCategory(subCategory);
+                                setMobileMenuLevel('subsubcategories');
+                              } else {
+                                setMobileMenuOpen(false);
+                              }
+                            }}
+                            type="button"
+                            className="w-full flex items-center justify-between px-4 py-4 text-left text-sm tracking-wide text-gray-700 hover:text-[#2c3b6e] transition-colors rounded-lg"
+                          >
+                            <span className="font-medium">{subCategory.name}</span>
+                            {subCategory.subSubCategories && subCategory.subSubCategories.length > 0 && (
+                              <ChevronRight className="w-5 h-5 text-gray-400" strokeWidth={1.5} />
+                            )}
+                          </motion.button>
+                        ))}
+                      </motion.div>
+                    )}
+
+                    {/* Sub-Subcategories Level */}
+                    {mobileMenuLevel === 'subsubcategories' && selectedSubCategory && (
+                      <motion.div
+                        key="subsubcategories"
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: 20 }}
+                        transition={{ duration: 0.3, ease: [0.25, 0.1, 0.25, 1] }}
+                        className="p-6 space-y-1"
+                      >
+                        {selectedSubCategory.subSubCategories?.map((subSubCategory, index) => {
+                          const parentSubCategory = selectedCategory?.subCategories.find(
+                            (sc) => sc.subSubCategories?.some((ssc) => ssc.id === subSubCategory.id)
+                          );
+                          return (
+                            <Link
+                              key={subSubCategory.id}
+                              href={`${selectedCategory?.href}?subCategory=${encodeURIComponent(parentSubCategory?.name || '')}&subSubCategory=${encodeURIComponent(subSubCategory.name)}`}
+                              onClick={() => setMobileMenuOpen(false)}
+                            >
+                              <motion.div
+                                initial={{ opacity: 0, x: -20 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                transition={{ 
+                                  delay: index * 0.05, 
+                                  duration: 0.3,
+                                  ease: [0.25, 0.1, 0.25, 1],
+                                }}
+                                whileHover={{ x: 4, backgroundColor: '#f9fafb' }}
+                                whileTap={{ scale: 0.98 }}
+                                className="block w-full px-4 py-4 text-sm tracking-wide text-gray-600 hover:text-[#2c3b6e] transition-colors rounded-lg"
+                              >
+                                {subSubCategory.name}
+                              </motion.div>
+                            </Link>
+                          );
+                        })}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+            </div>
+          </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* Search Modal */}
+      <AnimatePresence>
+        {searchOpen && <SearchModal isOpen={searchOpen} onClose={() => setSearchOpen(false)} />}
+      </AnimatePresence>
+
+      {/* Cart Modal */}
+      <CartModal
+        isOpen={cartOpen}
+        onClose={() => setCartOpen(false)}
+        items={items}
+        onRemoveItem={removeFromCart}
+        onUpdateQuantity={updateQuantity}
+      />
+    </nav>
+  );
+}

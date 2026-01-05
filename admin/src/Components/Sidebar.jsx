@@ -28,9 +28,11 @@ import {
   FiMail,
   FiHelpCircle,
   FiMessageSquare,
+  FiMessageCircle,
   FiShare2,
   FiArrowLeft,
-  FiArrowRight
+  FiArrowRight,
+  FiBriefcase
 } from 'react-icons/fi';
 
 const Sidebar = ({ collapsed, setCollapsed, isMobileMenuOpen, setIsMobileMenuOpen }) => {
@@ -41,8 +43,10 @@ const Sidebar = ({ collapsed, setCollapsed, isMobileMenuOpen, setIsMobileMenuOpe
   React.useEffect(() => {
     if (isMobileMenuOpen) {
       onOpen();
+    } else {
+      onClose();
     }
-  }, [isMobileMenuOpen]);
+  }, [isMobileMenuOpen, onOpen, onClose]);
   
   const handleClose = () => {
     onClose();
@@ -59,6 +63,7 @@ const Sidebar = ({ collapsed, setCollapsed, isMobileMenuOpen, setIsMobileMenuOpe
     { icon: FiShoppingCart, label: 'Заказы', path: '/orders' },
     { icon: FiUsers, label: 'Пользователи', path: '/users' },
     { icon: FiMessageSquare, label: 'Сообщения', path: '/contact-messages' },
+    { icon: FiMessageCircle, label: 'Чат', path: '/chat' },
     { icon: FiSettings, label: 'Настройки', path: '/settings' },
   ];
 
@@ -297,6 +302,7 @@ const Sidebar = ({ collapsed, setCollapsed, isMobileMenuOpen, setIsMobileMenuOpe
           { icon: FiMail, label: 'Контакты', path: '/contacts' },
           { icon: FiHelpCircle, label: 'FAQ', path: '/faq' },
           { icon: FiShare2, label: 'Социальные сети', path: '/social-links' },
+          { icon: FiBriefcase, label: 'Наши партнёры', path: '/partners' },
         ].map((item) => {
           const active = location.pathname === item.path;
           const menuItem = (
@@ -361,14 +367,19 @@ const Sidebar = ({ collapsed, setCollapsed, isMobileMenuOpen, setIsMobileMenuOpe
     <>
       {/* Mobile Drawer */}
       <Drawer
-        isOpen={isOpen}
+        isOpen={isOpen || isMobileMenuOpen}
         placement="left"
         onClose={handleClose}
         size="sm"
       >
-        <DrawerOverlay bg="rgba(0, 0, 0, 0.5)" />
+        <DrawerOverlay bg="rgba(0, 0, 0, 0.5)" onClick={handleClose} />
         <DrawerContent bg="white" borderRadius="0">
-          <DrawerCloseButton color="black" _hover={{ bg: '#fafafa' }} />
+          <DrawerCloseButton 
+            color="black" 
+            _hover={{ bg: '#fafafa' }} 
+            onClick={handleClose}
+            zIndex={10}
+          />
           <DrawerBody p="0" display="flex" flexDirection="column" height="100%">
             <MenuContent isMobile={true} setCollapsed={setCollapsed} collapsed={collapsed} onClose={handleClose} />
           </DrawerBody>

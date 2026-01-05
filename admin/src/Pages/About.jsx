@@ -32,6 +32,7 @@ import {
 import { FiPlus, FiEdit, FiTrash2, FiSave, FiUpload, FiLink } from 'react-icons/fi';
 import axios from 'axios';
 import { BASE_URL } from '../constants/config';
+import TranslationFields from '../Components/TranslationFields';
 
 const About = () => {
   const toast = useToast();
@@ -42,6 +43,9 @@ const About = () => {
   const [editingSection, setEditingSection] = useState(null);
   const [editingMember, setEditingMember] = useState(null);
   const [isSectionModal, setIsSectionModal] = useState(true);
+  const [showTeamBlock, setShowTeamBlock] = useState(true);
+  const [heroTitle, setHeroTitle] = useState({ ru: "О компании", uz: "", en: "", es: "" });
+  const [heroDescription, setHeroDescription] = useState({ ru: "Liberty — это больше, чем просто бренд одежды. Это философия стиля, качества и индивидуальности.", uz: "", en: "", es: "" });
 
   useEffect(() => {
     fetchData();
@@ -50,12 +54,30 @@ const About = () => {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const [sectionsRes, teamRes] = await Promise.all([
+      const [sectionsRes, teamRes, teamSettingRes, heroTitleRes, heroDescRes] = await Promise.all([
         axios.get(`${BASE_URL}/pages/about/sections`),
-        axios.get(`${BASE_URL}/pages/about/team`)
+        axios.get(`${BASE_URL}/pages/about/team`),
+        axios.get(`${BASE_URL}/site-settings/value/show_team_block`).catch(() => ({ data: { value: "true" } })),
+        axios.get(`${BASE_URL}/site-settings/value/about_hero_title`).catch(() => ({ data: { value: null } })),
+        axios.get(`${BASE_URL}/site-settings/value/about_hero_description`).catch(() => ({ data: { value: null } }))
       ]);
       setSections(sectionsRes.data);
       setTeamMembers(teamRes.data);
+      setShowTeamBlock(teamSettingRes.data.value === "true");
+      
+      // Загружаем hero переводы
+      try {
+        if (heroTitleRes.data.value) {
+          const heroTitleTranslations = JSON.parse(heroTitleRes.data.value);
+          setHeroTitle(heroTitleTranslations);
+        }
+        if (heroDescRes.data.value) {
+          const heroDescTranslations = JSON.parse(heroDescRes.data.value);
+          setHeroDescription(heroDescTranslations);
+        }
+      } catch (e) {
+        console.error("Error parsing hero translations:", e);
+      }
     } catch (error) {
       toast({
         title: "Ошибка",
@@ -70,17 +92,59 @@ const About = () => {
 
   const handleSaveSection = async (section) => {
     try {
+      // Убеждаемся, что переводы включены и не пустые
+      const sectionToSave = {
+        ...section,
+        title_translations: section.title_translations && Object.keys(section.title_translations).length > 0 
+          ? section.title_translations 
+          : { ru: section.title || '', uz: '', en: '', es: '' },
+        description_translations: section.description_translations && Object.keys(section.description_translations).length > 0
+          ? section.description_translations 
+          : { ru: section.description || '', uz: '', en: '', es: '' }
+      };
+      
+      console.log('Saving section:', sectionToSave);
+      console.log('Title translations:', JSON.stringify(sectionToSave.title_translations));
+      console.log('Description translations:', JSON.stringify(sectionToSave.description_translations));
+      
       if (section.id) {
-        await axios.put(`${BASE_URL}/pages/about/sections/${section.id}`, section);
+        const response = await axios.put(`${BASE_URL}/pages/about/sections/${section.id}`, sectionToSave);
+        console.log('Response:', response.data);
+        console.log('Response title_translations:', response.data?.title_translations);
+        console.log('Response description_translations:', response.data?.description_translations);
         toast({ title: "Секция обновлена", status: "success", duration: 2000 });
       } else {
-        await axios.post(`${BASE_URL}/pages/about/sections`, section);
+        const response = await axios.post(`${BASE_URL}/pages/about/sections`, sectionToSave);
+        console.log('Response:', response.data);
         toast({ title: "Секция создана", status: "success", duration: 2000 });
       }
       fetchData();
       onClose();
     } catch (error) {
-      toast({ title: "Ошибка", description: error.message, status: "error", duration: 3000 });
+      console.error('Error saving section:', error);
+      console.error('Error response:', error.response?.data);
+      console.error('Error status:', error.response?.status);
+      console.error('Error message:', error.message);
+      
+      // Детальное сообщение об ошибке
+      let errorMessage = error.message;
+      if (error.response?.data) {
+        if (error.response.data.detail) {
+          errorMessage = error.response.data.detail;
+        } else if (typeof error.response.data === 'string') {
+          errorMessage = error.response.data;
+        } else {
+          errorMessage = JSON.stringify(error.response.data);
+        }
+      }
+      
+      toast({ 
+        title: "Ошибка сохранения", 
+        description: errorMessage,
+        status: "error", 
+        duration: 5000,
+        isClosable: true
+      });
     }
   };
 
@@ -105,6 +169,35 @@ const About = () => {
       await axios.delete(`${BASE_URL}/pages/about/sections/${id}`);
       toast({ title: "Секция удалена", status: "success", duration: 2000 });
       fetchData();
+    } catch (error) {
+      toast({ title: "Ошибка", description: error.message, status: "error", duration: 3000 });
+    }
+  };
+
+  const handleSaveHeroTranslations = async () => {
+    try {
+      await axios.put(`${BASE_URL}/site-settings/about_hero_title`, {
+        value: JSON.stringify(heroTitle),
+        description: "Заголовок hero секции на странице О компании (JSON с переводами)"
+      });
+      await axios.put(`${BASE_URL}/site-settings/about_hero_description`, {
+        value: JSON.stringify(heroDescription),
+        description: "Описание hero секции на странице О компании (JSON с переводами)"
+      });
+      toast({ title: "Переводы hero секции сохранены", status: "success", duration: 2000 });
+    } catch (error) {
+      toast({ title: "Ошибка", description: error.message, status: "error", duration: 3000 });
+    }
+  };
+
+  const handleToggleTeamBlock = async (value) => {
+    try {
+      await axios.put(`${BASE_URL}/site-settings/show_team_block`, {
+        value: value ? "true" : "false",
+        description: "Показывать блок команды на странице О компании"
+      });
+      setShowTeamBlock(value);
+      toast({ title: "Настройка сохранена", status: "success", duration: 2000 });
     } catch (error) {
       toast({ title: "Ошибка", description: error.message, status: "error", duration: 3000 });
     }
@@ -140,6 +233,38 @@ const About = () => {
         О компании
       </Heading>
 
+      {/* Hero Section Translations */}
+      <Box mb="40px" bg="white" border="1px solid" borderColor="#e5e5e5" borderRadius="12px" p="20px">
+        <Text fontSize="18px" fontWeight="500" letterSpacing="0.5px" mb="20px">
+          Hero секция (Заголовок и описание)
+        </Text>
+        <VStack spacing="20px" align="stretch">
+          <Box>
+            <Text fontSize="14px" fontWeight="500" mb="10px">Заголовок</Text>
+            <TranslationFields
+              label="Заголовок"
+              fieldName="title"
+              value={heroTitle}
+              onChange={(translations) => setHeroTitle(translations)}
+              isTextarea={false}
+            />
+          </Box>
+          <Box>
+            <Text fontSize="14px" fontWeight="500" mb="10px">Описание</Text>
+            <TranslationFields
+              label="Описание"
+              fieldName="description"
+              value={heroDescription}
+              onChange={(translations) => setHeroDescription(translations)}
+              isTextarea={true}
+            />
+          </Box>
+          <Button bg="black" color="white" onClick={handleSaveHeroTranslations}>
+            Сохранить переводы Hero секции
+          </Button>
+        </VStack>
+      </Box>
+
       {/* Sections */}
       <Box mb="40px">
         <Flex justify="space-between" align="center" mb="20px">
@@ -152,7 +277,15 @@ const About = () => {
             color="white"
             size="sm"
             onClick={() => {
-              setEditingSection({ title: '', description: '', image: '', reverse: false, order: sections.length + 1 });
+              setEditingSection({ 
+                title: '', 
+                description: '', 
+                image: '', 
+                reverse: false, 
+                order: sections.length + 1,
+                title_translations: { ru: '', uz: '', en: '', es: '' },
+                description_translations: { ru: '', uz: '', en: '', es: '' }
+              });
               setIsSectionModal(true);
               onOpen();
             }}
@@ -198,16 +331,48 @@ const About = () => {
       {/* Team Members */}
       <Box>
         <Flex justify="space-between" align="center" mb="20px">
-          <Text fontSize="18px" fontWeight="500" letterSpacing="0.5px">
-            Команда
-          </Text>
+          <Flex align="center" gap="15px">
+            <Text fontSize="18px" fontWeight="500" letterSpacing="0.5px">
+              Команда
+            </Text>
+            <Flex align="center" gap="10px">
+              <FormLabel fontSize="14px" mb="0" fontWeight="400">Показать на сайте</FormLabel>
+              <Switch
+                isChecked={showTeamBlock}
+                onChange={(e) => handleToggleTeamBlock(e.target.checked)}
+                colorScheme="black"
+                size="md"
+                sx={{
+                  '& .chakra-switch__track[data-checked]': {
+                    bg: 'black !important',
+                  },
+                  '& .chakra-switch__thumb[data-checked]': {
+                    bg: 'white !important',
+                  },
+                  '& .chakra-switch__track:not([data-checked])': {
+                    bg: 'gray.300 !important',
+                  },
+                  '& .chakra-switch__thumb:not([data-checked])': {
+                    bg: 'white !important',
+                  },
+                }}
+              />
+            </Flex>
+          </Flex>
           <Button
             leftIcon={<FiPlus />}
             bg="black"
             color="white"
             size="sm"
             onClick={() => {
-              setEditingMember({ name: '', role: '', image: '', order: teamMembers.length + 1 });
+              setEditingMember({ 
+                name: '', 
+                role: '', 
+                image: '', 
+                order: teamMembers.length + 1,
+                name_translations: { ru: '', uz: '', en: '', es: '' },
+                role_translations: { ru: '', uz: '', en: '', es: '' }
+              });
               setIsSectionModal(false);
               onOpen();
             }}
@@ -274,6 +439,36 @@ const About = () => {
 const EditSectionForm = ({ section, setSection, onSave }) => {
   const [uploading, setUploading] = useState(false);
   const [imagePreview, setImagePreview] = useState(section.image || '');
+  // Инициализируем переводы, если их нет
+  useEffect(() => {
+    const updates = {};
+    
+    if (!section.title_translations || Object.keys(section.title_translations).length === 0) {
+      updates.title_translations = { 
+        ru: section.title || '', 
+        uz: '', 
+        en: '', 
+        es: '' 
+      };
+    }
+    
+    if (!section.description_translations || Object.keys(section.description_translations).length === 0) {
+      updates.description_translations = { 
+        ru: section.description || '', 
+        uz: '', 
+        en: '', 
+        es: '' 
+      };
+    }
+    
+    if (Object.keys(updates).length > 0) {
+      setSection({ ...section, ...updates });
+    }
+  }, [section.id]); // Обновляем при изменении ID секции
+
+ // Только при монтировании
+
+
   const toast = useToast();
 
   const handleFileUpload = async (e) => {
@@ -340,23 +535,59 @@ const EditSectionForm = ({ section, setSection, onSave }) => {
     setImagePreview(url);
   };
 
+
+
   return (
     <VStack spacing="20px" align="stretch">
       <Box>
-        <Text fontSize="12px" mb="5px">Заголовок</Text>
+        <Text fontSize="12px" mb="5px">Заголовок (русский)</Text>
         <Input
           value={section.title}
-          onChange={(e) => setSection({ ...section, title: e.target.value })}
+          onChange={(e) => {
+            const newTitle = e.target.value;
+            setSection({ 
+              ...section, 
+              title: newTitle,
+              title_translations: { ...section.title_translations, ru: newTitle }
+            });
+          }}
         />
       </Box>
+      <TranslationFields
+        label="Заголовок"
+        fieldName="title"
+        value={section.title_translations || { ru: section.title || '', uz: '', en: '', es: '' }}
+        onChange={(translations) => {
+          console.log('Title translations changed:', translations);
+          setSection((prevSection) => ({ ...prevSection, title_translations: translations }));
+        }}
+        isTextarea={false}
+      />
       <Box>
-        <Text fontSize="12px" mb="5px">Описание</Text>
+        <Text fontSize="12px" mb="5px">Описание (русский)</Text>
         <Textarea
           value={section.description}
-          onChange={(e) => setSection({ ...section, description: e.target.value })}
+          onChange={(e) => {
+            const newDesc = e.target.value;
+            setSection({ 
+              ...section, 
+              description: newDesc,
+              description_translations: { ...section.description_translations, ru: newDesc }
+            });
+          }}
           rows={5}
         />
       </Box>
+      <TranslationFields
+        label="Описание"
+        fieldName="description"
+        value={section.description_translations || { ru: section.description || '', uz: '', en: '', es: '' }}
+        onChange={(translations) => {
+          console.log('Description translations changed:', translations);
+          setSection((prevSection) => ({ ...prevSection, description_translations: translations }));
+        }}
+        isTextarea={true}
+      />
       
       <Box>
         <Text fontSize="12px" mb="10px" fontWeight="500">Изображение</Text>
@@ -413,7 +644,16 @@ const EditSectionForm = ({ section, setSection, onSave }) => {
           <Text as="span" ml="10px">Обратный порядок</Text>
         </FormLabel>
       </Box>
-      <Button bg="black" color="white" onClick={() => onSave(section)}>
+      <Button bg="black" color="white" onClick={() => {
+        // Убеждаемся, что все переводы включены перед сохранением
+        const sectionToSave = {
+          ...section,
+          title_translations: section.title_translations || { ru: section.title || '', uz: '', en: '', es: '' },
+          description_translations: section.description_translations || { ru: section.description || '', uz: '', en: '', es: '' }
+        };
+        console.log('Saving from form, section:', sectionToSave);
+        onSave(sectionToSave);
+      }}>
         Сохранить
       </Button>
     </VStack>
@@ -487,22 +727,58 @@ const EditMemberForm = ({ member, setMember, onSave }) => {
     setImagePreview(url);
   };
 
+  // Инициализируем переводы, если их нет
+  if (!member.name_translations) {
+    member.name_translations = { ru: member.name || '', uz: '', en: '', es: '' };
+  }
+  if (!member.role_translations) {
+    member.role_translations = { ru: member.role || '', uz: '', en: '', es: '' };
+  }
+
   return (
     <VStack spacing="20px" align="stretch">
       <Box>
-        <Text fontSize="12px" mb="5px">Имя</Text>
+        <Text fontSize="12px" mb="5px">Имя (русский)</Text>
         <Input
           value={member.name}
-          onChange={(e) => setMember({ ...member, name: e.target.value })}
+          onChange={(e) => {
+            const newName = e.target.value;
+            setMember({ 
+              ...member, 
+              name: newName,
+              name_translations: { ...member.name_translations, ru: newName }
+            });
+          }}
         />
       </Box>
+      <TranslationFields
+        label="Имя"
+        fieldName="name"
+        value={member.name_translations || { ru: member.name || '', uz: '', en: '', es: '' }}
+        onChange={(translations) => setMember({ ...member, name_translations: translations })}
+        isTextarea={false}
+      />
       <Box>
-        <Text fontSize="12px" mb="5px">Роль</Text>
+        <Text fontSize="12px" mb="5px">Роль (русский)</Text>
         <Input
           value={member.role}
-          onChange={(e) => setMember({ ...member, role: e.target.value })}
+          onChange={(e) => {
+            const newRole = e.target.value;
+            setMember({ 
+              ...member, 
+              role: newRole,
+              role_translations: { ...member.role_translations, ru: newRole }
+            });
+          }}
         />
       </Box>
+      <TranslationFields
+        label="Роль"
+        fieldName="role"
+        value={member.role_translations || { ru: member.role || '', uz: '', en: '', es: '' }}
+        onChange={(translations) => setMember({ ...member, role_translations: translations })}
+        isTextarea={false}
+      />
       
       <Box>
         <Text fontSize="12px" mb="10px" fontWeight="500">Изображение</Text>

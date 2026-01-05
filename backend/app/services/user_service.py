@@ -69,18 +69,35 @@ class UserService:
         # Отправка кода подтверждения
         email_sent = await send_verification_email(user_data.email, verification_code)
         
-        # В режиме разработки (если SMTP не настроен) возвращаем код в ответе
-        import os
+        # Проверяем, настроен ли SMTP
+        smtp_configured = (
+            settings.SMTP_USER and 
+            settings.SMTP_USER.strip() and 
+            settings.SMTP_PASSWORD and 
+            settings.SMTP_PASSWORD.strip()
+        )
+        
+        # Определяем, нужно ли вернуть dev_code
         dev_code = None
-        if not os.getenv("SMTP_USER") or not os.getenv("SMTP_PASSWORD"):
+        if not smtp_configured:
+            # Если SMTP не настроен, всегда возвращаем код для разработки
+            dev_code = verification_code
+        elif not email_sent:
+            # Если SMTP настроен, но отправка не удалась, возвращаем код как fallback
+            print(f"[LIBERTY] ⚠️ Email не был отправлен, но код доступен: {verification_code}")
             dev_code = verification_code
         
-        return {
-            "message": "Код подтверждения отправлен на email. Подтвердите email для завершения регистрации.",
+        response = {
+            "message": "Код подтверждения отправлен на email. Подтвердите email для завершения регистрации." if email_sent else "Не удалось отправить email, но код доступен ниже. Подтвердите email для завершения регистрации.",
             "email": user_data.email,
             "verification_code_sent": email_sent,
-            "dev_code": dev_code  # Только в режиме разработки
         }
+        
+        # Добавляем dev_code если SMTP не настроен или отправка не удалась
+        if dev_code:
+            response["dev_code"] = dev_code
+        
+        return response
     
     @staticmethod
     async def verify_email(db: Session, email: str, code: str) -> dict:

@@ -34,6 +34,7 @@ class PaymeRequest(BaseModel):
 class PaymeResponse(BaseModel):
     result: Optional[Dict[str, Any]] = None
     error: Optional[Dict[str, Any]] = None
+    id: Optional[Any] = None  # ID из запроса для соответствия спецификации RPC-JSON
 
 class CheckPerformTransactionParams(BaseModel):
     amount: int

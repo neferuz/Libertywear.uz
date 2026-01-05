@@ -11,11 +11,12 @@ logger = logging.getLogger(__name__)
 
 # Импорт роутеров
 from app.routers import auth, products, users, categories, pages, upload, contact_messages
-from app.routers import cart as cart_router, payme, orders, slider, favorites, social_links
+from app.routers import cart as cart_router, payme, orders, slider, favorites, social_links, chat, partners, site_settings
+from app.routers import yustex
 from app.database import Base, engine
 
 # Импорт всех моделей для создания таблиц
-from app.models import user, page_content, contact_message, category, product, cart, payment, order, slider as slider_model, favorite, social_links as social_links_model
+from app.models import user, page_content, contact_message, chat_message, category, product, cart, payment, order, slider as slider_model, favorite, social_links as social_links_model, partner
 
 # Создание таблиц в БД (только если их нет)
 # В продакшене используйте Alembic для миграций
@@ -32,6 +33,9 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# IP адрес сервера для CORS
+SERVER_IP = "147.45.155.163"
+
 # CORS middleware для работы с фронтендом
 app.add_middleware(
     CORSMiddleware,
@@ -42,13 +46,19 @@ app.add_middleware(
         "http://127.0.0.1:3000",
         "http://127.0.0.1:3001",
         "http://127.0.0.1:3002",
-        "http://192.168.0.51:3000",
-        "http://192.168.0.51:3001",
-        "http://192.168.0.51:3002",
-        "http://192.168.0.108:3000",
-        "http://192.168.0.108:3001",
-        "http://192.168.0.108:3002",
-        "http://192.168.0.108:8000",
+        f"http://{SERVER_IP}:3000",
+        f"http://{SERVER_IP}:3001",
+        f"http://{SERVER_IP}:3002",
+        f"http://{SERVER_IP}:8000",
+        # Домены
+        "https://libertywear.uz",
+        "http://libertywear.uz",
+        "https://www.libertywear.uz",
+        "http://www.libertywear.uz",
+        "https://admin.libertywear.uz",
+        "http://admin.libertywear.uz",
+        "https://api.libertywear.uz",
+        "http://api.libertywear.uz",
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
@@ -66,10 +76,14 @@ app.include_router(upload.router)
 app.include_router(contact_messages.router)
 app.include_router(cart_router.router)
 app.include_router(payme.router)
+app.include_router(yustex.router)
 app.include_router(orders.router)
 app.include_router(slider.router)
 app.include_router(favorites.router)
 app.include_router(social_links.router)
+app.include_router(chat.router)
+app.include_router(partners.router)
+app.include_router(site_settings.router)
 
 # Подключение статических файлов для загруженных изображений
 uploads_dir = Path("uploads")
@@ -84,6 +98,23 @@ async def root():
 async def health_check():
     return {"status": "healthy"}
 
+
+# Security Headers Middleware
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    # Добавляем заголовки безопасности
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    # Скрываем информацию о сервере
+    response.headers["Server"] = "Liberty"
+    return response
+
+
 # Обработчик исключений для отправки CORS заголовков даже при ошибках
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
@@ -97,18 +128,61 @@ async def http_exception_handler(request: Request, exc: HTTPException):
         "http://localhost:3000",
         "http://localhost:3001",
         "http://localhost:3002",
-        "http://192.168.0.108:3000",
-        "http://192.168.0.108:3001",
-        "http://192.168.0.108:3002",
+        f"http://{SERVER_IP}:3000",
+        f"http://{SERVER_IP}:3001",
+        f"http://{SERVER_IP}:3002",
+        f"http://{SERVER_IP}:8000",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:3001",
         "http://127.0.0.1:3002",
-        "http://192.168.0.51:3000",
-        "http://192.168.0.51:3001",
-        "http://192.168.0.51:3002",
+        "https://libertywear.uz",
+        "http://libertywear.uz",
+        "https://www.libertywear.uz",
+        "http://www.libertywear.uz",
+        "https://admin.libertywear.uz",
+        "http://admin.libertywear.uz",
+        "https://api.libertywear.uz",
+        "http://api.libertywear.uz",
     ]
-    if origin in allowed_origins:
-        response.headers["Access-Control-Allow-Origin"] = origin
+    if origin in allowed_origins or origin is None:
+        response.headers["Access-Control-Allow-Origin"] = origin or "*"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+    return response
+
+# Обработчик для всех исключений (включая необработанные ошибки)
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    response = JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"}
+    )
+    # Добавляем CORS заголовки
+    origin = request.headers.get("origin")
+    allowed_origins = [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://localhost:3002",
+        f"http://{SERVER_IP}:3000",
+        f"http://{SERVER_IP}:3001",
+        f"http://{SERVER_IP}:3002",
+        f"http://{SERVER_IP}:8000",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+        "http://127.0.0.1:3002",
+        "https://libertywear.uz",
+        "http://libertywear.uz",
+        "https://www.libertywear.uz",
+        "http://www.libertywear.uz",
+        "https://admin.libertywear.uz",
+        "http://admin.libertywear.uz",
+        "https://api.libertywear.uz",
+        "http://api.libertywear.uz",
+    ]
+    if origin in allowed_origins or origin is None:
+        response.headers["Access-Control-Allow-Origin"] = origin or "*"
         response.headers["Access-Control-Allow-Credentials"] = "true"
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
         response.headers["Access-Control-Allow-Headers"] = "*"
@@ -117,4 +191,3 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
-

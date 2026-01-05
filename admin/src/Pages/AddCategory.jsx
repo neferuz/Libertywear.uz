@@ -17,15 +17,21 @@ import {
 } from '@chakra-ui/react';
 import { useNavigate } from 'react-router-dom';
 import { FiArrowLeft, FiPlus, FiX } from 'react-icons/fi';
+import axios from 'axios';
+import { BASE_URL } from '../constants/config';
+import TranslationFields from '../Components/TranslationFields';
 
 const AddCategory = () => {
   const navigate = useNavigate();
   const toast = useToast();
   const [categoryName, setCategoryName] = useState('');
-  const [parentCategory, setParentCategory] = useState('');
+  const [categoryNameTranslations, setCategoryNameTranslations] = useState({ ru: '', uz: '', en: '', es: '' });
+  const [categoryGender, setCategoryGender] = useState('');
+  const [categoryImage, setCategoryImage] = useState('');
   const [subcategories, setSubcategories] = useState([
-    { id: 1, name: '', subSubcategories: [] }
+    { id: 1, name: '', name_translations: { ru: '', uz: '', en: '', es: '' }, subSubcategories: [{ id: Date.now(), name: '', name_translations: { ru: '', uz: '', en: '', es: '' } }] }
   ]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleAddSubcategory = () => {
     setSubcategories([
@@ -44,10 +50,16 @@ const AddCategory = () => {
     ));
   };
 
+  const handleSubcategoryTranslationChange = (id, translations) => {
+    setSubcategories(subcategories.map(sub => 
+      sub.id === id ? { ...sub, name_translations: translations } : sub
+    ));
+  };
+
   const handleAddSubSubcategory = (subcategoryId) => {
     setSubcategories(subcategories.map(sub => 
       sub.id === subcategoryId 
-        ? { ...sub, subSubcategories: [...sub.subSubcategories, { id: Date.now(), name: '' }] }
+        ? { ...sub, subSubcategories: [...sub.subSubcategories, { id: Date.now(), name: '', name_translations: { ru: '', uz: '', en: '', es: '' } }] }
         : sub
     ));
   };
@@ -73,7 +85,20 @@ const AddCategory = () => {
     ));
   };
 
-  const handleSubmit = () => {
+  const handleSubSubcategoryTranslationChange = (subcategoryId, subSubcategoryId, translations) => {
+    setSubcategories(subcategories.map(sub => 
+      sub.id === subcategoryId 
+        ? { 
+            ...sub, 
+            subSubcategories: sub.subSubcategories.map(ss => 
+              ss.id === subSubcategoryId ? { ...ss, name_translations: translations } : ss
+            )
+          }
+        : sub
+    ));
+  };
+
+  const handleSubmit = async () => {
     if (!categoryName.trim()) {
       toast({
         title: "Ошибка",
@@ -85,16 +110,94 @@ const AddCategory = () => {
       return;
     }
 
-    // Здесь будет логика сохранения категории
-    toast({
-      title: "Успешно",
-      description: "Категория успешно добавлена",
-      status: "success",
-      duration: 3000,
-      isClosable: true,
-    });
+    setIsSubmitting(true);
 
-    navigate('/categories');
+    try {
+      // Определяем gender на основе названия или выбранного значения
+      let gender = categoryGender;
+      if (!gender) {
+        const nameLower = categoryName.toLowerCase();
+        if (nameLower.includes('жен') || nameLower.includes('women') || nameLower.includes('woman')) {
+          gender = 'female';
+        } else if (nameLower.includes('муж') || nameLower.includes('men') || nameLower.includes('man')) {
+          gender = 'male';
+        } else if (nameLower.includes('дет') || nameLower.includes('kids') || nameLower.includes('kid')) {
+          gender = 'kids';
+        }
+      }
+
+      // Создаем главную категорию (без parent_id, так как это главная категория)
+      const mainCategoryData = {
+        title: categoryName.trim(),
+        title_translations: categoryNameTranslations,
+        gender: gender || null,
+        image: categoryImage.trim() || null,
+        parent_id: null,
+        order: 0
+      };
+
+      const mainCategoryResponse = await axios.post(`${BASE_URL}/categories/`, mainCategoryData);
+      const mainCategoryId = mainCategoryResponse.data.id;
+
+      // Создаем подкатегории, если они есть
+      if (subcategories.length > 0 && subcategories[0].name.trim()) {
+        for (let i = 0; i < subcategories.length; i++) {
+          const subcategory = subcategories[i];
+          if (subcategory.name.trim()) {
+            // Создаем подкатегорию
+            const subcategoryData = {
+              title: subcategory.name.trim(),
+              title_translations: subcategory.name_translations || {},
+              gender: gender || null,
+              parent_id: mainCategoryId,
+              order: i + 1
+            };
+
+            const subcategoryResponse = await axios.post(`${BASE_URL}/categories/`, subcategoryData);
+            const subcategoryId = subcategoryResponse.data.id;
+
+            // Создаем под-подкатегории, если они есть
+            if (subcategory.subSubcategories && subcategory.subSubcategories.length > 0) {
+              for (let j = 0; j < subcategory.subSubcategories.length; j++) {
+                const subSubcategory = subcategory.subSubcategories[j];
+                // Пропускаем пустые под-подкатегории (если только русское название не заполнено)
+                if (subSubcategory.name && subSubcategory.name.trim()) {
+                  const subSubcategoryData = {
+                    title: subSubcategory.name.trim(),
+                    title_translations: subSubcategory.name_translations || {},
+                    gender: gender || null,
+                    parent_id: subcategoryId,
+                    order: j + 1
+                  };
+                  await axios.post(`${BASE_URL}/categories/`, subSubcategoryData);
+                }
+              }
+            }
+          }
+        }
+      }
+
+      toast({
+        title: "Успешно",
+        description: "Категория успешно добавлена",
+        status: "success",
+        duration: 3000,
+        isClosable: true,
+      });
+
+      navigate('/categories');
+    } catch (err) {
+      console.error('Error creating category:', err);
+      toast({
+        title: "Ошибка",
+        description: err.response?.data?.detail || "Не удалось добавить категорию",
+        status: "error",
+        duration: 3000,
+        isClosable: true,
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -130,7 +233,7 @@ const AddCategory = () => {
               textTransform="uppercase"
               mb="10px"
             >
-              Название категории
+              Название категории (русский)
             </FormLabel>
             <Input
               value={categoryName}
@@ -148,7 +251,16 @@ const AddCategory = () => {
             />
           </FormControl>
 
-          {/* Parent Category (Optional) */}
+          {/* Main Category Name Translations */}
+          <TranslationFields
+            label="Название категории"
+            fieldName="name"
+            value={categoryNameTranslations}
+            onChange={(translations) => setCategoryNameTranslations(translations)}
+            type="input"
+          />
+
+          {/* Gender Selection */}
           <FormControl>
             <FormLabel
               fontSize="12px"
@@ -157,11 +269,11 @@ const AddCategory = () => {
               textTransform="uppercase"
               mb="10px"
             >
-              Родительская категория (необязательно)
+              Пол (необязательно)
             </FormLabel>
             <Select
-              value={parentCategory}
-              onChange={(e) => setParentCategory(e.target.value)}
+              value={categoryGender}
+              onChange={(e) => setCategoryGender(e.target.value)}
               borderRadius="0"
               borderColor="black"
               borderBottom="1px solid"
@@ -172,11 +284,38 @@ const AddCategory = () => {
               fontSize="14px"
               paddingY="15px"
             >
-              <option value="">Нет (основная категория)</option>
-              <option value="women">Женская</option>
-              <option value="men">Мужская</option>
-              <option value="kids">Детская</option>
+              <option value="">Автоматически (определится по названию)</option>
+              <option value="female">Женский</option>
+              <option value="male">Мужской</option>
+              <option value="kids">Детский</option>
             </Select>
+          </FormControl>
+
+          {/* Category Image URL */}
+          <FormControl>
+            <FormLabel
+              fontSize="12px"
+              fontWeight="400"
+              letterSpacing="0.5px"
+              textTransform="uppercase"
+              mb="10px"
+            >
+              URL изображения категории (необязательно)
+            </FormLabel>
+            <Input
+              value={categoryImage}
+              onChange={(e) => setCategoryImage(e.target.value)}
+              placeholder="https://example.com/image.jpg"
+              borderRadius="0"
+              borderColor="black"
+              borderBottom="1px solid"
+              borderTop="none"
+              borderLeft="none"
+              borderRight="none"
+              _focus={{ borderBottom: "1px solid black", boxShadow: "none" }}
+              fontSize="14px"
+              paddingY="15px"
+            />
           </FormControl>
 
           <Box>
@@ -232,6 +371,7 @@ const AddCategory = () => {
                   </Flex>
 
                   <FormControl mb="15px">
+                    <FormLabel fontSize="11px" mb="5px">Название подкатегории (русский)</FormLabel>
                     <Input
                       value={subcategory.name}
                       onChange={(e) => handleSubcategoryChange(subcategory.id, e.target.value)}
@@ -248,6 +388,14 @@ const AddCategory = () => {
                       bg="white"
                     />
                   </FormControl>
+
+                  <TranslationFields
+                    label="Название подкатегории"
+                    fieldName="name"
+                    value={subcategory.name_translations || { ru: '', uz: '', en: '', es: '' }}
+                    onChange={(translations) => handleSubcategoryTranslationChange(subcategory.id, translations)}
+                    type="input"
+                  />
 
                   {/* Sub-Subcategories */}
                   <Box>
@@ -269,33 +417,42 @@ const AddCategory = () => {
 
                     <VStack spacing="8px" align="stretch">
                       {subcategory.subSubcategories.map((subSubcategory) => (
-                        <Flex key={subSubcategory.id} align="center" gap="10px">
-                          <Input
-                            value={subSubcategory.name}
-                            onChange={(e) => handleSubSubcategoryChange(subcategory.id, subSubcategory.id, e.target.value)}
-                            placeholder="Например: Пальто"
-                            borderRadius="0"
-                            borderColor="gray.400"
-                            borderBottom="1px solid"
-                            borderTop="none"
-                            borderLeft="none"
-                            borderRight="none"
-                            _focus={{ borderBottom: "1px solid black", boxShadow: "none" }}
-                            fontSize="12px"
-                            paddingY="10px"
-                            bg="white"
-                            flex="1"
+                        <Box key={subSubcategory.id} mb="15px">
+                          <Flex align="center" gap="10px" mb="10px">
+                            <Input
+                              value={subSubcategory.name}
+                              onChange={(e) => handleSubSubcategoryChange(subcategory.id, subSubcategory.id, e.target.value)}
+                              placeholder="Например: Пальто (русский)"
+                              borderRadius="0"
+                              borderColor="gray.400"
+                              borderBottom="1px solid"
+                              borderTop="none"
+                              borderLeft="none"
+                              borderRight="none"
+                              _focus={{ borderBottom: "1px solid black", boxShadow: "none" }}
+                              fontSize="12px"
+                              paddingY="10px"
+                              bg="white"
+                              flex="1"
+                            />
+                            <Button
+                              size="xs"
+                              variant="ghost"
+                              onClick={() => handleRemoveSubSubcategory(subcategory.id, subSubcategory.id)}
+                              color="red.500"
+                              _hover={{ bg: "red.50" }}
+                            >
+                              <FiX />
+                            </Button>
+                          </Flex>
+                          <TranslationFields
+                            label="Название под-подкатегории"
+                            fieldName="name"
+                            value={subSubcategory.name_translations || { ru: '', uz: '', en: '', es: '' }}
+                            onChange={(translations) => handleSubSubcategoryTranslationChange(subcategory.id, subSubcategory.id, translations)}
+                            type="input"
                           />
-                          <Button
-                            size="xs"
-                            variant="ghost"
-                            onClick={() => handleRemoveSubSubcategory(subcategory.id, subSubcategory.id)}
-                            color="red.500"
-                            _hover={{ bg: "red.50" }}
-                          >
-                            <FiX />
-                          </Button>
-                        </Flex>
+                        </Box>
                       ))}
                     </VStack>
                   </Box>
@@ -334,6 +491,8 @@ const AddCategory = () => {
               px="30px"
               py="20px"
               onClick={handleSubmit}
+              isLoading={isSubmitting}
+              loadingText="Сохранение..."
             >
               Сохранить
             </Button>

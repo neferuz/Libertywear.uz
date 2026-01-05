@@ -86,7 +86,7 @@ const Orders = () => {
         },
         total: `${order.total_amount.toLocaleString('ru-RU')} UZS`,
         totalAmount: order.total_amount,
-        status: getStatusText(order.order_status),
+        status: getStatusText(order.order_status, order.payment_method, order.payment_status),
         statusKey: order.order_status,
         date: order.created_at,
         paymentMethod: order.payment_method,
@@ -110,7 +110,17 @@ const Orders = () => {
     }
   };
 
-  const getStatusText = (status) => {
+  const getStatusText = (status, paymentMethod, paymentStatus) => {
+    // Если Payme и не оплачено - показываем "Ожидает оплаты"
+    if (paymentMethod === 'payme' && paymentStatus === 'pending') {
+      return 'Ожидает оплаты';
+    }
+    
+    // Если наличные и статус pending - показываем "В обработке"
+    if (paymentMethod === 'cash' && status === 'pending') {
+      return 'В обработке';
+    }
+    
     const statusMap = {
       'pending': 'В обработке',
       'processing': 'В обработке',
@@ -270,7 +280,7 @@ const Orders = () => {
                 onClick={() => handleOrderClick(order.id)}
                 transition="background 0.2s"
               >
-                  <Td borderColor="#e5e5e5" fontSize={{ base: "12px", md: "13px" }} fontWeight="500" py={{ base: "10px", md: "20px" }} px={{ base: "10px", md: "20px" }}>ORD-{order.id}</Td>
+                  <Td borderColor="#e5e5e5" fontSize={{ base: "12px", md: "13px" }} fontWeight="500" py={{ base: "10px", md: "20px" }} px={{ base: "10px", md: "20px" }}>Заказ №{order.id}</Td>
                   <Td borderColor="#e5e5e5" fontSize={{ base: "12px", md: "13px" }} py={{ base: "10px", md: "20px" }} px={{ base: "10px", md: "20px" }} display={{ base: "none", sm: "table-cell" }}>
                   <Text
                     cursor="pointer"

@@ -45,8 +45,8 @@ const Dashboard = () => {
       // Параллельно загружаем все данные
       const [ordersRes, usersRes, productsRes] = await Promise.all([
         axios.get(`${BASE_URL}/order/all`).catch(() => ({ data: [] })),
-        axios.get(`${BASE_URL}/users`).catch(() => ({ data: [] })),
-        axios.get(`${BASE_URL}/cloths?page=0&limit=1000`).catch(() => ({ data: { data: [] } })),
+        axios.get(`${BASE_URL}/users/`).catch(() => ({ data: [] })),
+        axios.get(`${BASE_URL}/products?page=0&limit=1000`).catch(() => ({ data: { data: [] } })),
       ]);
 
       const orders = ordersRes.data || [];

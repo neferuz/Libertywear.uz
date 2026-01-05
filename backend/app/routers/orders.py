@@ -85,25 +85,33 @@ async def create_order(request: Request, db: Session = Depends(get_db)):
         
         # Создаем элементы заказа
         for item_data in items:
-            product_id = item_data.get("pid") or item_data.get("id") or item_data.get("_id") or item_data.get("productId")
+            product_id = item_data.get("pid") or item_data.get("productId") or item_data.get("id") or item_data.get("_id")
             if not product_id:
+                logger.warning(f"Item missing product_id: {item_data}")
                 continue
             
             try:
                 product_id = int(product_id)
             except (ValueError, TypeError):
+                logger.warning(f"Invalid product_id format: {product_id}")
                 continue
             
             # Проверяем существование товара
             product = db.query(Product).filter(Product.id == product_id).first()
             if not product:
+                logger.warning(f"Product not found: {product_id}")
                 continue
             
             # Получаем вариант если указан
             variant = None
-            variant_id = item_data.get("variantId")
+            variant_id = item_data.get("variantId") or item_data.get("variant_id")
             if variant_id:
-                variant = db.query(ProductVariant).filter(ProductVariant.id == variant_id).first()
+                try:
+                    variant_id = int(variant_id)
+                    variant = db.query(ProductVariant).filter(ProductVariant.id == variant_id).first()
+                except (ValueError, TypeError):
+                    logger.warning(f"Invalid variant_id format: {variant_id}")
+                    variant = None
             
             quantity = item_data.get("quantity", 1)
             price = item_data.get("price", 0) or (variant.price if variant else (product.variants[0].price if product.variants and len(product.variants) > 0 else 0))
@@ -146,19 +154,65 @@ async def create_order(request: Request, db: Session = Depends(get_db)):
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error creating order: {str(e)}")
 
-@router.get("/", response_model=List[OrderResponse])
-def get_orders(request: Request, db: Session = Depends(get_db)):
+@router.get("/")
+def get_orders(request: Request, page: int = 0, limit: int = 10, db: Session = Depends(get_db)):
     """
-    Получить список заказов пользователя
+    Получить список заказов пользователя с пагинацией
     """
     user_id = get_user_id_from_request(request)
-    orders = db.query(Order).filter(Order.user_id == user_id).order_by(Order.created_at.desc()).all()
+    
+    # Получаем общее количество заказов
+    total_count = db.query(Order).filter(Order.user_id == user_id).count()
+    
+    # Получаем заказы с пагинацией
+    orders = db.query(Order).filter(Order.user_id == user_id).order_by(Order.created_at.desc()).offset(page * limit).limit(limit).all()
     
     # Загружаем items для каждого заказа
     for order in orders:
         order.items = db.query(OrderItem).filter(OrderItem.order_id == order.id).all()
     
-    return orders
+    # Преобразуем в формат, который ожидает фронтенд
+    orders_data = []
+    for order in orders:
+        # Если в заказе есть товары, создаем запись для каждого товара (для обратной совместимости)
+        if order.items:
+            for item in order.items:
+                orders_data.append({
+                    "_id": f"{order.id}_{item.id}",
+                    "id": order.id,
+                    "productName": item.product_data.get("product_name") if item.product_data else "Товар",
+                    "imageURL": item.product_data.get("image_url") if item.product_data else None,
+                    "price": item.price,
+                    "quantity": item.quantity,
+                    "size": item.size,
+                    "status": order.order_status,
+                    "orderDate": order.created_at.timestamp() * 1000 if order.created_at else None,
+                    "address": order.address,
+                    "totalAmount": order.total_amount
+                })
+        else:
+            # Если товаров нет, все равно показываем заказ
+            orders_data.append({
+                "_id": f"{order.id}_empty",
+                "id": order.id,
+                "productName": "Заказ",
+                "imageURL": None,
+                "price": 0,
+                "quantity": 0,
+                "size": None,
+                "status": order.order_status,
+                "orderDate": order.created_at.timestamp() * 1000 if order.created_at else None,
+                "address": order.address,
+                "totalAmount": order.total_amount
+            })
+    
+    return {
+        "status": 1,
+        "data": orders_data,
+        "count": total_count,
+        "page": page,
+        "limit": limit
+    }
 
 @router.get("/all", response_model=List[OrderResponse])
 def get_all_orders(db: Session = Depends(get_db)):

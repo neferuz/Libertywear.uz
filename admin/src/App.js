@@ -18,7 +18,9 @@ import About from './Pages/About';
 import Contacts from './Pages/Contacts';
 import FAQ from './Pages/FAQ';
 import ContactMessages from './Pages/ContactMessages';
+import Chat from './Pages/Chat';
 import SocialLinks from './Pages/SocialLinks';
+import Partners from './Pages/Partners';
 
 function App() {
   return (
@@ -46,7 +48,9 @@ function App() {
                 <Route path="/contacts" element={<Contacts />} />
                 <Route path="/faq" element={<FAQ />} />
                 <Route path="/contact-messages" element={<ContactMessages />} />
+                <Route path="/chat" element={<Chat />} />
                 <Route path="/social-links" element={<SocialLinks />} />
+                <Route path="/partners" element={<Partners />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </Layout>
