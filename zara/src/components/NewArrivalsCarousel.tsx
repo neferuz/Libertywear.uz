@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChevronLeft, ChevronRight, Eye } from 'lucide-react';
+import Image from 'next/image';
 
 interface Product {
   id: number;
@@ -13,6 +14,17 @@ interface Product {
 interface NewArrivalsCarouselProps {
   products: Product[];
 }
+
+// Format price with space as thousand separator and "сум" currency
+const formatPrice = (price: number): string => {
+  // Round to integer (no decimals for сум)
+  const integerPrice = Math.round(price);
+  
+  // Add space as thousand separator
+  const formattedPrice = integerPrice.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  
+  return `${formattedPrice} сум`;
+};
 
 export function NewArrivalsCarousel({ products }: NewArrivalsCarouselProps) {
   const [hoveredProduct, setHoveredProduct] = useState<number | null>(null);
@@ -83,15 +95,24 @@ export function NewArrivalsCarousel({ products }: NewArrivalsCarouselProps) {
               >
                 {/* Product Image */}
                 <div className="relative bg-gray-50 mb-4 overflow-hidden aspect-[3/4]">
-                  <motion.img
-                    src={product.imageUrl}
-                    alt={product.name}
-                    className="w-full h-full object-cover"
+                  <motion.div
                     animate={{
                       scale: hoveredProduct === product.id ? 1.05 : 1,
                     }}
                     transition={{ duration: 0.6, ease: 'easeOut' }}
-                  />
+                    className="absolute inset-0"
+                  >
+                    <Image
+                      src={product.imageUrl}
+                      alt={product.name}
+                      fill
+                      sizes="(max-width: 768px) 280px, 320px"
+                      className="object-cover"
+                      loading="lazy"
+                      quality={85}
+                      unoptimized={false}
+                    />
+                  </motion.div>
 
                   {/* Quick View Overlay */}
                   <AnimatePresence>
@@ -125,7 +146,7 @@ export function NewArrivalsCarousel({ products }: NewArrivalsCarouselProps) {
                   <h3 className="text-sm group-hover:text-gray-600 transition-colors">
                     {product.name}
                   </h3>
-                  <p className="text-gray-900">${product.price.toFixed(2)}</p>
+                  <p className="text-gray-900">{formatPrice(product.price)}</p>
                   <p className="text-xs text-gray-500">
                     {product.colors} {product.colors === 1 ? 'color' : 'colors'} available
                   </p>

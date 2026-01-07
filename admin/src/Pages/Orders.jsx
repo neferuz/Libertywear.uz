@@ -76,31 +76,68 @@ const Orders = () => {
       setLoading(true);
       const response = await axios.get(`${BASE_URL}/order/all`);
       
-      // Преобразуем данные из API в формат компонента
-      const transformedOrders = response.data.map((order) => ({
-        id: order.id,
-        orderId: order.id,
-        customer: {
-          id: order.user_id,
-          name: order.user?.name || order.user?.email || 'Неизвестный клиент'
-        },
-        total: `${order.total_amount.toLocaleString('ru-RU')} UZS`,
-        totalAmount: order.total_amount,
-        status: getStatusText(order.order_status, order.payment_method, order.payment_status),
-        statusKey: order.order_status,
-        date: order.created_at,
-        paymentMethod: order.payment_method,
-        paymentStatus: order.payment_status,
-        address: order.address,
-        items: order.items || []
-      }));
+      console.log('📥 [Orders] API Response:', response.data);
+      console.log('📥 [Orders] Response status:', response.status);
+      console.log('📥 [Orders] Response headers:', response.headers);
       
+      // API возвращает массив заказов напрямую
+      let ordersData = [];
+      if (Array.isArray(response.data)) {
+        ordersData = response.data;
+      } else if (response.data && Array.isArray(response.data.data)) {
+        // Если данные обернуты в объект с полем data
+        ordersData = response.data.data;
+      } else if (response.data && typeof response.data === 'object') {
+        // Если это один объект, оборачиваем в массив
+        ordersData = [response.data];
+      }
+      
+      console.log('📥 [Orders] Processed ordersData:', ordersData);
+      
+      // Преобразуем данные из API в формат компонента
+      const transformedOrders = ordersData.map((order) => {
+        // Форматируем дату
+        const orderDate = order.created_at || order.order_date || new Date().toISOString();
+        
+        // Обрабатываем user объект
+        let customerId = 0;
+        let customerName = 'Неизвестный клиент';
+        
+        if (order.user) {
+          customerId = order.user.id || 0;
+          customerName = order.user.name || order.user.email || 'Неизвестный клиент';
+        } else if (order.user_id) {
+          customerId = order.user_id;
+          customerName = 'Пользователь #' + order.user_id;
+        }
+        
+        return {
+          id: order.id,
+          orderId: order.id,
+          customer: {
+            id: customerId,
+            name: customerName
+          },
+          total: `${(order.total_amount || 0).toLocaleString('ru-RU')} UZS`,
+          totalAmount: order.total_amount || 0,
+          status: getStatusText(order.order_status, order.payment_method, order.payment_status),
+          statusKey: order.order_status || 'pending',
+          date: orderDate,
+          paymentMethod: order.payment_method || 'cash',
+          paymentStatus: order.payment_status || 'pending',
+          address: order.address || '',
+          items: order.items || []
+        };
+      });
+      
+      console.log('✅ [Orders] Transformed orders:', transformedOrders);
       setOrders(transformedOrders);
     } catch (error) {
-      console.error('Error fetching orders:', error);
+      console.error('❌ [Orders] Error fetching orders:', error);
+      console.error('Error details:', error.response?.data || error.message);
       toast({
         title: "Ошибка",
-        description: "Не удалось загрузить заказы",
+        description: error.response?.data?.detail || error.message || "Не удалось загрузить заказы",
         status: "error",
         duration: 3000,
         isClosable: true,

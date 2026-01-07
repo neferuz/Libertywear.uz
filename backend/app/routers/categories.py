@@ -129,6 +129,32 @@ def list_all_categories(
     
     return translated_categories
 
+@router.get("/slug/{slug}", response_model=CategorySchema)
+def get_category_by_slug(
+    slug: str,
+    lang: str = Query('ru', description="Language code (ru, uz, en, es)"),
+    db: Session = Depends(get_db)
+):
+    """Получить категорию по slug с переводами (ищет в категориях, подкатегориях и под-подкатегориях)"""
+    # Ищем категорию по slug (включая подкатегории)
+    category = db.query(Category).filter(Category.slug == slug).first()
+    
+    if not category:
+        raise HTTPException(status_code=404, detail=f"Категория со slug '{slug}' не найдена")
+    
+    # Применяем переводы
+    translated = get_translated_category(category, lang)
+    # Загружаем подкатегории рекурсивно
+    translated['subcategories'] = [
+        load_category_with_subcategories(db, sub, lang, max_depth=3, current_depth=1)
+        for sub in db.query(Category).filter(Category.parent_id == category.id).order_by(Category.order).all()
+    ]
+    translated['id'] = category.id
+    translated['created_at'] = category.created_at
+    translated['updated_at'] = category.updated_at
+    
+    return translated
+
 @router.get("/{category_id}", response_model=CategorySchema)
 def get_category(
     category_id: int, 

@@ -52,11 +52,18 @@ const ContactMessages = () => {
   const fetchMessages = async () => {
     try {
       setLoading(true);
+      console.log('📥 [ContactMessages] Fetching messages from:', `${BASE_URL}/contact-messages/`);
       const res = await fetch(`${BASE_URL}/contact-messages/`);
-      if (!res.ok) throw new Error('Не удалось загрузить сообщения');
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error('❌ [ContactMessages] Error response:', res.status, errorText);
+        throw new Error(`Не удалось загрузить сообщения: ${res.status}`);
+      }
       const data = await res.json();
-      setMessages(data);
+      console.log('✅ [ContactMessages] Messages fetched:', data.length, 'messages');
+      setMessages(Array.isArray(data) ? data : []);
     } catch (err) {
+      console.error('❌ [ContactMessages] Error fetching messages:', err);
       toast({
         title: "Ошибка",
         description: err.message,
@@ -64,6 +71,7 @@ const ContactMessages = () => {
         duration: 3000,
         isClosable: true,
       });
+      setMessages([]);
     } finally {
       setLoading(false);
     }

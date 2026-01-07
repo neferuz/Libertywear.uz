@@ -1,13 +1,48 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft, ShoppingCart, Heart, Share2, Minus, Plus, X, ChevronRight, AlertCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import Image from 'next/image';
 import { UrbanNavigation } from '@/components/UrbanNavigation';
 import { UrbanFooter } from '@/components/UrbanFooter';
 import { useCart } from '@/context/CartContext';
+import { useLanguage } from '@/context/LanguageContext';
+import { t, getLanguageCode } from '@/lib/translations';
+import { fetchProductById, fetchProducts, fetchCategories, Product as APIProduct, Category as APICategory, addFavorite, removeFavorite, getFavorites } from '@/lib/api';
+
+// Helper function to get translated text from API translations
+const getTranslatedText = (translations: any, lang: string, fallback: string): string => {
+  if (!translations) return fallback;
+  
+  if (typeof translations === 'string') {
+    try {
+      const parsed = JSON.parse(translations);
+      return parsed[lang] || parsed['en'] || fallback;
+    } catch {
+      return fallback;
+    }
+  }
+  
+  if (typeof translations === 'object') {
+    return translations[lang] || translations['en'] || fallback;
+  }
+  
+  return fallback;
+};
+
+// Format price with space as thousand separator and "сум" currency
+const formatPrice = (price: number): string => {
+  // Round to integer (no decimals for сум)
+  const integerPrice = Math.round(price);
+  
+  // Add space as thousand separator
+  const formattedPrice = integerPrice.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  
+  return `${formattedPrice} сум`;
+};
 
 interface Product {
   id: number;
@@ -246,23 +281,218 @@ const allProducts: Product[] = [
 export default function ProductPage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const { addToCart } = useCart();
+  const { language } = useLanguage();
   const [selectedImage, setSelectedImage] = useState(0);
   const [selectedSize, setSelectedSize] = useState<string>('');
   const [selectedColor, setSelectedColor] = useState<string>('');
+  const [selectedVariant, setSelectedVariant] = useState<any>(null);
   const [quantity, setQuantity] = useState(1);
   const [isAddingToCart, setIsAddingToCart] = useState(false);
   const [notification, setNotification] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
+  const [product, setProduct] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [recommendedProducts, setRecommendedProducts] = useState<any[]>([]);
+  const [isFavorite, setIsFavorite] = useState(false);
+  const [isFavoriteLoading, setIsFavoriteLoading] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  const product = allProducts.find((p) => p.id === Number(params.id));
+  // Check authentication and favorite status
+  useEffect(() => {
+    const token = localStorage.getItem('auth_token');
+    setIsAuthenticated(!!token);
+    
+    const checkFavoriteStatus = async () => {
+      if (!token) {
+        setIsFavorite(false);
+        return;
+      }
+      
+      try {
+        const favorites = await getFavorites(token);
+        const productId = Number(params.id);
+        setIsFavorite(favorites.some(fav => fav.product_id === productId));
+      } catch (error) {
+        console.error('Error checking favorite status:', error);
+        setIsFavorite(false);
+      }
+    };
+    
+    checkFavoriteStatus();
+  }, [params.id]);
+
+  // Load product from API
+  useEffect(() => {
+    const loadProduct = async () => {
+      try {
+        setLoading(true);
+        const productId = Number(params.id);
+        // Use language from context directly, fallback to getLanguageCode() for SSR
+        const currentLang = language || getLanguageCode();
+        
+        console.log('🔄 [ProductPage] Loading product:', productId, 'with language:', currentLang, 'from context:', language);
+        
+        // Load categories and product in parallel
+        const [categories, apiProduct] = await Promise.all([
+          fetchCategories(currentLang),
+          fetchProductById(productId, currentLang),
+        ]);
+        
+        if (!apiProduct) {
+          console.error('❌ [ProductPage] Product not found:', productId);
+          setProduct(null);
+          setLoading(false);
+          return;
+        }
+        
+        console.log('✅ [ProductPage] Product loaded:', apiProduct.id, apiProduct.name);
+
+        // Helper function to find category name by ID with translation
+        const findCategoryName = (categoryId: number): string => {
+          const findInCategories = (cats: APICategory[]): string | null => {
+            for (const cat of cats) {
+              if (cat.id === categoryId) {
+                const translatedTitle = getTranslatedText(
+                  cat.title_translations,
+                  currentLang,
+                  cat.title || ''
+                );
+                return translatedTitle ? translatedTitle.toUpperCase() : null;
+              }
+              if (cat.subcategories && cat.subcategories.length > 0) {
+                const found = findInCategories(cat.subcategories);
+                if (found) return found;
+              }
+            }
+            return null;
+          };
+          
+          const foundName = findInCategories(categories);
+          return foundName || '';
+        };
+
+        // Transform API product to component format
+        const firstVariant = apiProduct.variants && apiProduct.variants.length > 0 
+          ? apiProduct.variants[0] 
+          : null;
+        
+        // Get images from variants
+        const images: string[] = [];
+        if (firstVariant) {
+          if (firstVariant.images && firstVariant.images.length > 0) {
+            images.push(...firstVariant.images.map((img: any) => img.image_url));
+          } else if (firstVariant.color_image) {
+            images.push(firstVariant.color_image);
+          }
+        }
+        
+        // Get sizes from first variant
+        const sizes = firstVariant?.sizes || [];
+        
+        // Get colors from all variants
+        const colors = apiProduct.variants?.map((v: any) => v.color_name) || [];
+        
+        // Get category name from API
+        const categoryName = apiProduct.category_id ? findCategoryName(apiProduct.category_id) : '';
+        
+        const transformedProduct = {
+          id: apiProduct.id,
+          name: apiProduct.name || 'Unnamed Product',
+          price: firstVariant?.price || apiProduct.price || 0,
+          imageUrl: images[0] || 'https://via.placeholder.com/400x600',
+          category: categoryName,
+          subCategory: '',
+          subSubCategory: '',
+          size: sizes,
+          color: colors,
+          brand: '',
+          description: apiProduct.description || '',
+          images: images.length > 0 ? images : [images[0] || 'https://via.placeholder.com/400x600'],
+          variants: apiProduct.variants || [],
+        };
+        
+        setProduct(transformedProduct);
+        setSelectedVariant(firstVariant);
+        
+        // Auto-select first color if available
+        if (firstVariant && firstVariant.color_name) {
+          const hasSizeStock = firstVariant.size_stock && Object.values(firstVariant.size_stock).some((stock: any) => stock > 0);
+          if (firstVariant.stock > 0 || hasSizeStock) {
+            setSelectedColor(firstVariant.color_name);
+          } else if (colors.length > 0) {
+            // Select first color even if stock is 0, so user can see the product
+            setSelectedColor(firstVariant.color_name);
+          }
+        }
+        
+        // Load recommended products
+        const recommended = await fetchProducts({
+          limit: 4,
+          lang: currentLang,
+        });
+        
+        // Transform recommended products with category names
+        const transformedRecommended = (recommended.products || [])
+          .filter((p: any) => p.id !== productId)
+          .slice(0, 4)
+          .map((p: any) => {
+            const pFirstVariant = p.variants && p.variants.length > 0 ? p.variants[0] : null;
+            let pImageUrl = 'https://via.placeholder.com/400x600';
+            if (pFirstVariant) {
+              if (pFirstVariant.images && pFirstVariant.images.length > 0) {
+                pImageUrl = pFirstVariant.images[0].image_url;
+              } else if (pFirstVariant.color_image) {
+                pImageUrl = pFirstVariant.color_image;
+              }
+            }
+            
+            // Get category name for recommended product
+            const pCategoryName = p.category_id ? findCategoryName(p.category_id) : '';
+            
+            return {
+              id: p.id,
+              name: p.name || 'Unnamed Product',
+              price: pFirstVariant?.price || p.price || 0,
+              imageUrl: pImageUrl,
+              category: pCategoryName,
+              subCategory: '',
+            };
+          });
+        
+        setRecommendedProducts(transformedRecommended);
+      } catch (error) {
+        console.error('Error loading product:', error);
+        setProduct(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadProduct();
+  }, [params.id, language]); // Reload when language changes
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-white">
+        <UrbanNavigation />
+        <div className="pt-24 pb-16 px-6 lg:px-12 text-center">
+          <div className="animate-pulse">
+            <div className="h-8 bg-gray-200 rounded w-64 mx-auto mb-4"></div>
+            <div className="h-4 bg-gray-200 rounded w-32 mx-auto"></div>
+          </div>
+        </div>
+        <UrbanFooter />
+      </div>
+    );
+  }
 
   if (!product) {
     return (
       <div className="min-h-screen bg-white">
         <UrbanNavigation />
         <div className="pt-24 pb-16 px-6 lg:px-12 text-center">
-          <h1 className="text-2xl mb-4">Product not found</h1>
+          <h1 className="text-2xl mb-4">{t('product.productNotFound', language)}</h1>
           <Link href="/" className="text-[#2c3b6e] hover:text-black">
-            Go to homepage
+            {t('product.goToHomepage', language)}
           </Link>
         </div>
         <UrbanFooter />
@@ -272,27 +502,58 @@ export default function ProductPage({ params }: { params: { id: string } }) {
 
   const images = product.images || [product.imageUrl];
 
+  // Handle variant selection (color)
+  const handleColorSelect = (colorName: string) => {
+    setSelectedColor(colorName);
+    const variant = product.variants?.find((v: any) => v.color_name === colorName);
+    if (variant) {
+      setSelectedVariant(variant);
+      // Update images when variant changes
+      const newImages: string[] = [];
+      if (variant.images && variant.images.length > 0) {
+        newImages.push(...variant.images.map((img: any) => img.image_url));
+      } else if (variant.color_image) {
+        newImages.push(variant.color_image);
+      }
+      if (newImages.length > 0) {
+        setProduct({ ...product, images: newImages, imageUrl: newImages[0] });
+        setSelectedImage(0);
+      }
+      // Update available sizes for this variant
+      if (variant.sizes && variant.sizes.length > 0) {
+        setProduct({ ...product, size: variant.sizes });
+      }
+    }
+  };
+
   const handleAddToCart = () => {
     if (!selectedSize && product.size && product.size.length > 0) {
-      setNotification({ message: 'Please select a size', type: 'error' });
+      setNotification({ message: t('product.pleaseSelectSize', language), type: 'error' });
       setTimeout(() => setNotification(null), 3000);
       return;
     }
     if (!selectedColor && product.color && product.color.length > 0) {
-      setNotification({ message: 'Please select a color', type: 'error' });
+      setNotification({ message: t('product.pleaseSelectColor', language), type: 'error' });
       setTimeout(() => setNotification(null), 3000);
       return;
     }
 
     setIsAddingToCart(true);
+    
+    // Use selected variant price if available
+    const price = selectedVariant?.price || product.price;
+    
     addToCart({
       ...product,
+      price: price,
       size: selectedSize,
       color: selectedColor,
+      variantId: selectedVariant?.id,
     });
+    
     setTimeout(() => {
       setIsAddingToCart(false);
-      setNotification({ message: 'Item added to cart', type: 'success' });
+      setNotification({ message: t('product.itemAddedToCart', language), type: 'success' });
       setTimeout(() => setNotification(null), 3000);
     }, 500);
   };
@@ -410,16 +671,25 @@ export default function ProductPage({ params }: { params: { id: string } }) {
               {/* Main Image */}
               <div className="relative aspect-square bg-gray-100 overflow-hidden rounded-sm">
                 <AnimatePresence mode="wait">
-                  <motion.img
+                  <motion.div
                     key={selectedImage}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.3 }}
+                    className="absolute inset-0"
+                  >
+                    <Image
                     src={images[selectedImage]}
                     alt={product.name}
-                    initial={{ opacity: 0, scale: 1.1 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.9 }}
-                    transition={{ duration: 0.4 }}
-                    className="w-full h-full object-cover"
-                  />
+                      fill
+                      sizes="(max-width: 1024px) 100vw, 50vw"
+                      className="object-cover"
+                      priority={selectedImage === 0}
+                      quality={90}
+                      unoptimized={false}
+                    />
+                  </motion.div>
                 </AnimatePresence>
               </div>
 
@@ -438,11 +708,18 @@ export default function ProductPage({ params }: { params: { id: string } }) {
                           : 'border-transparent hover:border-gray-300'
                       }`}
                     >
-                      <img
+                      <div className="relative w-full h-full">
+                        <Image
                         src={image}
                         alt={`${product.name} ${index + 1}`}
-                        className="w-full h-full object-cover"
+                          fill
+                          sizes="80px"
+                          className="object-cover"
+                          loading="lazy"
+                          quality={75}
+                          unoptimized={false}
                       />
+                      </div>
                     </motion.button>
                   ))}
                 </div>
@@ -498,20 +775,25 @@ export default function ProductPage({ params }: { params: { id: string } }) {
                 className="flex items-baseline gap-4"
               >
                 <span className="text-2xl md:text-3xl font-medium text-black">
-                  ${product.price}
+                  {formatPrice(selectedVariant?.price || product.price)}
                 </span>
               </motion.div>
 
               {/* Description */}
               {product.description && (
-                <motion.p
+                <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.6 }}
-                  className="text-sm text-gray-600 leading-relaxed max-w-lg"
+                  className="space-y-2"
                 >
+                  <h3 className="text-xs tracking-[0.1em] text-gray-700 uppercase">
+                    {t('product.description', language)}
+                  </h3>
+                  <p className="text-sm text-gray-600 leading-relaxed max-w-lg">
                   {product.description}
-                </motion.p>
+                  </p>
+                </motion.div>
               )}
 
               {/* Size Selection */}
@@ -524,7 +806,7 @@ export default function ProductPage({ params }: { params: { id: string } }) {
                 >
                   <div className="flex items-center justify-between">
                     <label className="text-xs tracking-[0.1em] text-gray-700 uppercase">
-                      Size
+                      {t('product.size', language)}
                     </label>
                     {selectedSize && (
                       <span className="text-xs text-gray-500">{selectedSize}</span>
@@ -560,19 +842,45 @@ export default function ProductPage({ params }: { params: { id: string } }) {
                 >
                   <div className="flex items-center justify-between">
                     <label className="text-xs tracking-[0.1em] text-gray-700 uppercase">
-                      Color
+                      {t('product.color', language)}
                     </label>
                     {selectedColor && (
                       <span className="text-xs text-gray-500">{selectedColor}</span>
                     )}
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {product.color.map((color) => (
+                    {product.variants?.map((variant: any, index: number) => {
+                      const color = variant.color_name;
+                      // Check if variant has stock in any size
+                      const hasSizeStock = variant.size_stock && Object.values(variant.size_stock).some((stock: any) => stock > 0);
+                      // Allow selection even if stock is 0, but show as available if has size_stock
+                      const isAvailable = variant && (variant.stock > 0 || hasSizeStock);
+                      // Always allow clicking to see the variant, even if out of stock
+                      const canSelect = true;
+                      
+                      return (
                       <motion.button
-                        key={color}
+                          key={`${variant.id}-${color}-${index}`}
+                          whileHover={canSelect ? { scale: 1.05, y: -2 } : {}}
+                          whileTap={canSelect ? { scale: 0.95 } : {}}
+                          onClick={() => canSelect && handleColorSelect(color)}
+                          className={`px-4 py-2.5 text-xs tracking-[0.1em] border-b-2 transition-all duration-300 ${
+                            selectedColor === color
+                              ? 'text-[#2c3b6e] border-[#2c3b6e] font-medium'
+                              : isAvailable
+                              ? 'text-gray-600 border-transparent hover:text-[#2c3b6e] hover:border-gray-300'
+                              : 'text-gray-500 border-transparent hover:text-gray-700 hover:border-gray-300'
+                          }`}
+                        >
+                          {color}
+                        </motion.button>
+                      );
+                    }) || product.color?.map((color: string, index: number) => (
+                      <motion.button
+                        key={`color-${color}-${index}`}
                         whileHover={{ scale: 1.05, y: -2 }}
                         whileTap={{ scale: 0.95 }}
-                        onClick={() => setSelectedColor(color)}
+                        onClick={() => handleColorSelect(color)}
                         className={`px-4 py-2.5 text-xs tracking-[0.1em] border-b-2 transition-all duration-300 ${
                           selectedColor === color
                             ? 'text-[#2c3b6e] border-[#2c3b6e] font-medium'
@@ -594,7 +902,7 @@ export default function ProductPage({ params }: { params: { id: string } }) {
                 className="space-y-3"
               >
                 <label className="text-xs tracking-[0.1em] text-gray-700 uppercase block">
-                  Quantity
+                  {t('product.quantity', language)}
                 </label>
                 <div className="flex items-center gap-4">
                   <div className="flex items-center border-b-2 border-gray-300">
@@ -633,11 +941,11 @@ export default function ProductPage({ params }: { params: { id: string } }) {
                 className="w-full bg-[#2c3b6e] text-white px-8 py-4 hover:bg-black transition-colors flex items-center justify-center space-x-2 text-sm tracking-[0.1em] disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isAddingToCart ? (
-                  <span>Adding...</span>
+                  <span>{t('product.adding', language)}</span>
                 ) : (
                   <>
                     <ShoppingCart className="w-4 h-4" strokeWidth={2} />
-                    <span>ADD TO CART</span>
+                    <span>{t('product.addToCart', language)}</span>
                   </>
                 )}
               </motion.button>
@@ -649,14 +957,115 @@ export default function ProductPage({ params }: { params: { id: string } }) {
                 transition={{ delay: 1.1 }}
                 className="flex items-center gap-6 pt-4 border-t border-gray-200"
               >
-                <button className="flex items-center gap-2 text-xs tracking-wide text-gray-600 hover:text-[#2c3b6e] transition-colors">
-                  <Heart className="w-4 h-4" />
-                  <span>Save for later</span>
-                </button>
-                <button className="flex items-center gap-2 text-xs tracking-wide text-gray-600 hover:text-[#2c3b6e] transition-colors">
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={async () => {
+                    if (!isAuthenticated) {
+                      setNotification({ 
+                        message: t('product.pleaseLoginForFavorites', language) || 'Please login to add to favorites', 
+                        type: 'error' 
+                      });
+                      setTimeout(() => setNotification(null), 3000);
+                      router.push('/login');
+                      return;
+                    }
+                    
+                    setIsFavoriteLoading(true);
+                    try {
+                      const token = localStorage.getItem('auth_token');
+                      if (!token) {
+                        router.push('/login');
+                        return;
+                      }
+                      
+                      if (isFavorite) {
+                        await removeFavorite(product.id, token);
+                        setIsFavorite(false);
+                        setNotification({ 
+                          message: t('product.removedFromFavorites', language) || 'Removed from favorites', 
+                          type: 'success' 
+                        });
+                      } else {
+                        await addFavorite(product.id, token);
+                        setIsFavorite(true);
+                        setNotification({ 
+                          message: t('product.addedToFavorites', language) || 'Added to favorites', 
+                          type: 'success' 
+                        });
+                      }
+                      setTimeout(() => setNotification(null), 3000);
+                    } catch (error) {
+                      console.error('Error toggling favorite:', error);
+                      setNotification({ 
+                        message: t('product.favoriteError', language) || 'Error updating favorites', 
+                        type: 'error' 
+                      });
+                      setTimeout(() => setNotification(null), 3000);
+                    } finally {
+                      setIsFavoriteLoading(false);
+                    }
+                  }}
+                  disabled={isFavoriteLoading}
+                  className={`flex items-center gap-2 text-xs tracking-wide transition-colors ${
+                    isFavorite
+                      ? 'text-red-600 hover:text-red-700'
+                      : 'text-gray-600 hover:text-[#2c3b6e]'
+                  } disabled:opacity-50 disabled:cursor-not-allowed`}
+                >
+                  <Heart className={`w-4 h-4 ${isFavorite ? 'fill-current' : ''}`} />
+                  <span>{isFavorite ? (t('product.removeFromFavorites', language) || 'Remove from favorites') : t('product.saveForLater', language)}</span>
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={async () => {
+                    const productUrl = `${window.location.origin}/product/${product.id}`;
+                    const shareData = {
+                      title: product.name,
+                      text: product.description || product.name,
+                      url: productUrl,
+                    };
+                    
+                    try {
+                      // Try Web Share API first (mobile)
+                      if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
+                        await navigator.share(shareData);
+                        setNotification({ 
+                          message: t('product.shared', language) || 'Shared successfully!', 
+                          type: 'success' 
+                        });
+                      } else {
+                        // Fallback: Copy to clipboard
+                        await navigator.clipboard.writeText(productUrl);
+                        setNotification({ 
+                          message: t('product.linkCopied', language) || 'Link copied to clipboard!', 
+                          type: 'success' 
+                        });
+                      }
+                      setTimeout(() => setNotification(null), 3000);
+                    } catch (error: any) {
+                      // User cancelled or error occurred
+                      if (error.name !== 'AbortError') {
+                        // Try clipboard as fallback
+                        try {
+                          await navigator.clipboard.writeText(productUrl);
+                          setNotification({ 
+                            message: t('product.linkCopied', language) || 'Link copied to clipboard!', 
+                            type: 'success' 
+                          });
+                          setTimeout(() => setNotification(null), 3000);
+                        } catch (clipboardError) {
+                          console.error('Error copying to clipboard:', clipboardError);
+                        }
+                      }
+                    }
+                  }}
+                  className="flex items-center gap-2 text-xs tracking-wide text-gray-600 hover:text-[#2c3b6e] transition-colors"
+                >
                   <Share2 className="w-4 h-4" />
-                  <span>Share</span>
-                </button>
+                  <span>{t('product.share', language)}</span>
+                </motion.button>
               </motion.div>
             </motion.div>
           </div>
@@ -671,19 +1080,16 @@ export default function ProductPage({ params }: { params: { id: string } }) {
           >
             <div className="mb-12">
               <h2 className="text-2xl md:text-3xl lg:text-4xl tracking-tight text-[#2c3b6e] mb-3 text-center">
-                YOU MAY ALSO LIKE
+                {t('product.recommended', language)}
               </h2>
               <p className="text-sm text-gray-600 tracking-wide text-center max-w-xl mx-auto">
-                Discover more products from our collection
+                {t('product.recommendedSubtitle', language)}
               </p>
             </div>
 
             {/* Recommended Products Grid */}
             <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 lg:gap-8">
-              {allProducts
-                .filter((p) => p.id !== product.id && (p.category === product.category || p.subCategory === product.subCategory))
-                .slice(0, 4)
-                .map((recommendedProduct, index) => (
+              {recommendedProducts.map((recommendedProduct, index) => (
                   <Link key={recommendedProduct.id} href={`/product/${recommendedProduct.id}`}>
                     <motion.div
                       initial={{ opacity: 0, y: 30 }}
@@ -694,13 +1100,22 @@ export default function ProductPage({ params }: { params: { id: string } }) {
                     >
                       {/* Product Image */}
                       <div className="relative bg-gray-100 mb-3 overflow-hidden aspect-[3/4]">
-                        <motion.img
-                          src={recommendedProduct.imageUrl}
-                          alt={recommendedProduct.name}
-                          className="w-full h-full object-cover"
+                        <motion.div
                           whileHover={{ scale: 1.08 }}
                           transition={{ duration: 0.6, ease: 'easeOut' }}
+                          className="absolute inset-0"
+                        >
+                          <Image
+                            src={recommendedProduct.imageUrl}
+                            alt={recommendedProduct.name}
+                            fill
+                            sizes="(max-width: 1024px) 50vw, 25vw"
+                            className="object-cover"
+                            loading="lazy"
+                            quality={85}
+                            unoptimized={false}
                         />
+                        </motion.div>
                       </div>
 
                       {/* Product Info */}
@@ -713,7 +1128,7 @@ export default function ProductPage({ params }: { params: { id: string } }) {
                         <h3 className="text-sm group-hover:text-gray-600 transition-colors tracking-wide line-clamp-2">
                           {recommendedProduct.name}
                         </h3>
-                        <p className="text-black font-medium">${recommendedProduct.price}</p>
+                        <p className="text-black font-medium">{formatPrice(recommendedProduct.price)}</p>
                       </div>
                     </motion.div>
                   </Link>

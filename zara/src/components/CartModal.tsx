@@ -4,6 +4,19 @@ import { motion, AnimatePresence } from 'motion/react';
 import { X, ShoppingBag, Trash2, ArrowRight } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useLanguage } from '@/context/LanguageContext';
+import { t, getLanguageCode } from '@/lib/translations';
+
+// Format price with space as thousand separator and "сум" currency
+const formatPrice = (price: number): string => {
+  // Round to integer (no decimals for сум)
+  const integerPrice = Math.round(price);
+  
+  // Add space as thousand separator
+  const formattedPrice = integerPrice.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  
+  return `${formattedPrice} сум`;
+};
 
 interface CartItem {
   id: number;
@@ -28,6 +41,9 @@ export function CartModal({
   onRemoveItem,
   onUpdateQuantity,
 }: CartModalProps) {
+  const { language } = useLanguage();
+  const currentLang = getLanguageCode();
+  
   const handleDecreaseQuantity = (item: CartItem, e: React.MouseEvent) => {
     e.stopPropagation();
     e.preventDefault();
@@ -120,9 +136,9 @@ export function CartModal({
                   <ShoppingBag className="w-5 h-5 text-white" strokeWidth={1.5} />
                 </div>
                 <div>
-                  <h3 className="text-lg tracking-tight font-medium">Shopping Cart</h3>
+                  <h3 className="text-lg tracking-tight font-medium">{t('cart.title', currentLang)}</h3>
                   <p className="text-xs text-gray-500 tracking-wide">
-                    {items.length} {items.length === 1 ? 'item' : 'items'}
+                    {items.length} {items.length === 1 ? t('cart.item', currentLang) : t('cart.items', currentLang)}
                   </p>
                 </div>
               </motion.div>
@@ -153,8 +169,8 @@ export function CartModal({
                   >
                     <ShoppingBag className="w-12 h-12 text-gray-400" strokeWidth={1.5} />
                   </motion.div>
-                  <p className="text-gray-500 text-sm tracking-wide mb-2">Your cart is empty</p>
-                  <p className="text-gray-400 text-xs">Start adding items to your cart</p>
+                  <p className="text-gray-500 text-sm tracking-wide mb-2">{t('cart.empty', currentLang)}</p>
+                  <p className="text-gray-400 text-xs">{t('cart.emptyDescription', currentLang)}</p>
                 </motion.div>
               ) : (
                 <div className="p-4 space-y-3">
@@ -204,7 +220,7 @@ export function CartModal({
                         <h4 className="text-sm font-medium tracking-wide mb-1 truncate">
                           {item.name}
                         </h4>
-                        <p className="text-xs text-gray-500 mb-2">${item.price.toFixed(2)}</p>
+                        <p className="text-xs text-gray-500 mb-2">{formatPrice(item.price)}</p>
 
                         {/* Quantity Controls */}
                         <div className="flex items-center justify-between">
@@ -238,7 +254,7 @@ export function CartModal({
                           </div>
                           <div className="flex items-center space-x-3">
                             <span className="text-sm font-medium text-gray-600">
-                              ${(item.price * item.quantity).toFixed(2)}
+                              {formatPrice(item.price * item.quantity)}
                             </span>
                             <motion.button
                               whileHover={{ scale: 1.1 }}
@@ -249,7 +265,7 @@ export function CartModal({
                                 onRemoveItem(item.id);
                               }}
                               className="text-gray-400 hover:text-red-600 transition-colors p-1"
-                              title="Remove item"
+                              title={t('cart.remove', currentLang)}
                               type="button"
                             >
                               <Trash2 className="w-4 h-4" strokeWidth={1.5} />
@@ -273,8 +289,8 @@ export function CartModal({
               >
                 {/* Total */}
                 <div className="flex items-center justify-between mb-4">
-                  <span className="text-sm text-gray-600 tracking-wide">Subtotal</span>
-                  <span className="text-lg font-medium tracking-tight">${total.toFixed(2)}</span>
+                  <span className="text-sm text-gray-600 tracking-wide">{t('cart.subtotal', currentLang)}</span>
+                  <span className="text-lg font-medium tracking-tight">{formatPrice(total)}</span>
                 </div>
 
                 {/* Checkout Button */}
@@ -285,7 +301,7 @@ export function CartModal({
                     onClick={onClose}
                     className="w-full bg-[#2c3b6e] text-white py-4 px-6 flex items-center justify-center space-x-2 hover:bg-black transition-colors text-sm tracking-[0.1em]"
                   >
-                    <span>CHECKOUT</span>
+                    <span>{t('cart.checkout', currentLang).toUpperCase()}</span>
                     <ArrowRight className="w-4 h-4" strokeWidth={2} />
                   </motion.button>
                 </Link>
@@ -296,7 +312,7 @@ export function CartModal({
                   whileHover={{ x: 3 }}
                   className="block text-center text-xs text-gray-500 hover:text-black transition-colors mt-3 tracking-wide"
                 >
-                  View full cart
+                  {t('cart.continueShopping', currentLang)}
                 </motion.a>
               </motion.div>
             )}

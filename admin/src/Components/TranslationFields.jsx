@@ -37,9 +37,11 @@ const TranslationFields = ({
 
   return (
     <Box mb={4}>
-      <FormLabel mb={2} fontSize="14px" fontWeight="500">
-        {label} (Переводы)
-      </FormLabel>
+      {label && (
+        <FormLabel mb={2} fontSize="14px" fontWeight="500">
+          {label} (Переводы)
+        </FormLabel>
+      )}
       <Tabs variant="enclosed" colorScheme="black">
         <TabList>
           {languages.map((lang) => (

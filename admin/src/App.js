@@ -21,6 +21,9 @@ import ContactMessages from './Pages/ContactMessages';
 import Chat from './Pages/Chat';
 import SocialLinks from './Pages/SocialLinks';
 import Partners from './Pages/Partners';
+import AnnouncementBar from './Pages/AnnouncementBar';
+import PromoBanner from './Pages/PromoBanner';
+import StoreLocation from './Pages/StoreLocation';
 
 function App() {
   return (
@@ -51,6 +54,9 @@ function App() {
                 <Route path="/chat" element={<Chat />} />
                 <Route path="/social-links" element={<SocialLinks />} />
                 <Route path="/partners" element={<Partners />} />
+                <Route path="/announcement-bar" element={<AnnouncementBar />} />
+                <Route path="/promo-banner" element={<PromoBanner />} />
+                <Route path="/store-location" element={<StoreLocation />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </Layout>

@@ -32,7 +32,10 @@ import {
   FiShare2,
   FiArrowLeft,
   FiArrowRight,
-  FiBriefcase
+  FiBriefcase,
+  FiBell,
+  FiImage,
+  FiMapPin
 } from 'react-icons/fi';
 
 const Sidebar = ({ collapsed, setCollapsed, isMobileMenuOpen, setIsMobileMenuOpen }) => {
@@ -303,6 +306,9 @@ const Sidebar = ({ collapsed, setCollapsed, isMobileMenuOpen, setIsMobileMenuOpe
           { icon: FiHelpCircle, label: 'FAQ', path: '/faq' },
           { icon: FiShare2, label: 'Социальные сети', path: '/social-links' },
           { icon: FiBriefcase, label: 'Наши партнёры', path: '/partners' },
+          { icon: FiBell, label: 'Баннер объявления', path: '/announcement-bar' },
+          { icon: FiImage, label: 'Промо-баннер', path: '/promo-banner' },
+          { icon: FiMapPin, label: 'Местоположение магазина', path: '/store-location' },
         ].map((item) => {
           const active = location.pathname === item.path;
           const menuItem = (

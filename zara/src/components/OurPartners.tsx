@@ -1,32 +1,56 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { fetchPartners, fetchSiteSetting, Partner } from '@/lib/api';
+import { useLanguage } from '@/context/LanguageContext';
+import { t } from '@/lib/translations';
 
 export function OurPartners() {
+  const { language } = useLanguage();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isHovered, setIsHovered] = useState(false);
   const [hoveredLogo, setHoveredLogo] = useState<number | null>(null);
+  const [partners, setPartners] = useState<Partner[]>([]);
+  const [showBlock, setShowBlock] = useState(true);
+  const [loading, setLoading] = useState(true);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  // Partner logos - using placeholder images for fashion brands
-  const partners = [
-    { id: 1, name: 'Nike', logo: 'https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400&h=200&fit=crop' },
-    { id: 2, name: 'Adidas', logo: 'https://images.unsplash.com/photo-1556906781-9a412961c28c?w=400&h=200&fit=crop' },
-    { id: 3, name: 'Gucci', logo: 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=400&h=200&fit=crop' },
-    { id: 4, name: "Levi's", logo: 'https://images.unsplash.com/photo-1576566588028-4147f3842f27?w=400&h=200&fit=crop' },
-    { id: 5, name: 'Zara', logo: 'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=400&h=200&fit=crop' },
-    { id: 6, name: 'H&M', logo: 'https://images.unsplash.com/photo-1467043237213-65f2da53396f?w=400&h=200&fit=crop' },
-    { id: 7, name: 'Puma', logo: 'https://images.unsplash.com/photo-1560769629-975ec94e6a86?w=400&h=200&fit=crop' },
-    { id: 8, name: 'Calvin Klein', logo: 'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?w=400&h=200&fit=crop' },
-    { id: 9, name: 'Tommy Hilfiger', logo: 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=400&h=200&fit=crop' },
-    { id: 10, name: 'Ralph Lauren', logo: 'https://images.unsplash.com/photo-1591047139829-d91aecb6caea?w=400&h=200&fit=crop' },
-  ];
-
-  // Duplicate partners for infinite scroll effect
-  const extendedPartners = [...partners, ...partners, ...partners];
-
-  // Auto-scroll effect
+  // Load partners and block visibility setting from API
   useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        
+        // Check if partners block should be shown
+        const showPartnersBlockValue = await fetchSiteSetting('show_partners_block');
+        const shouldShow = showPartnersBlockValue === 'true' || showPartnersBlockValue === '1';
+        setShowBlock(shouldShow);
+        
+        // Load partners only if block is enabled
+        if (shouldShow) {
+          const partnersData = await fetchPartners(true); // Only active partners
+          setPartners(partnersData);
+        }
+      } catch (error) {
+        console.error('Error loading partners data:', error);
+        // Default to showing block with empty partners
+        setShowBlock(true);
+        setPartners([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, []);
+
+  // Auto-scroll effect - must be called before any conditional returns
+  useEffect(() => {
+    // Only set up auto-scroll if block is shown, not loading, and has partners
+    if (!showBlock || loading || partners.length === 0) {
+      return;
+    }
+
     if (!isHovered) {
       const interval = setInterval(() => {
         setCurrentIndex((prev) => {
@@ -41,7 +65,20 @@ export function OurPartners() {
 
       return () => clearInterval(interval);
     }
-  }, [isHovered, partners.length]);
+  }, [isHovered, partners.length, showBlock, loading]);
+
+  // Don't render if block is disabled
+  if (!showBlock) {
+    return null;
+  }
+
+  // Don't render if loading or no partners
+  if (loading || partners.length === 0) {
+    return null;
+  }
+
+  // Duplicate partners for infinite scroll effect
+  const extendedPartners = [...partners, ...partners, ...partners];
 
   const paginate = (direction: number) => {
     setCurrentIndex((prev) => {
@@ -63,7 +100,7 @@ export function OurPartners() {
           transition={{ duration: 0.8, ease: [0.25, 0.1, 0.25, 1] }}
           className="text-left lg:text-center mb-8 lg:mb-16"
         >
-          <h2 className="text-xl lg:text-3xl md:text-4xl mb-2 lg:mb-4 tracking-tight uppercase">OUR PARTNERS</h2>
+          <h2 className="text-xl lg:text-3xl md:text-4xl mb-2 lg:mb-4 tracking-tight uppercase">{t('ourPartners.title', language)}</h2>
         </motion.div>
 
         {/* Carousel Container */}
@@ -109,13 +146,20 @@ export function OurPartners() {
                       duration: 0.3,
                       ease: 'easeOut',
                     }}
-                    className="rounded-xl p-3 flex items-center justify-center h-24 cursor-pointer relative overflow-hidden"
+                    className={`rounded-xl p-3 flex items-center justify-center h-24 relative overflow-hidden ${
+                      partner.website_url ? 'cursor-pointer' : 'cursor-default'
+                    }`}
+                    onClick={() => {
+                      if (partner.website_url) {
+                        window.open(partner.website_url, '_blank', 'noopener,noreferrer');
+                      }
+                    }}
                   >
                     {/* Logo Image with grayscale filter */}
                     <motion.img
-                      src={partner.logo}
+                      src={partner.logo_url}
                       alt={partner.name}
-                      className="w-2/3 h-2/3 object-contain transition-all duration-500"
+                      className="w-2/3 h-2/3 object-contain transition-all duration-500 pointer-events-none"
                       style={{
                         filter: hoveredLogo === index ? 'grayscale(0%)' : 'grayscale(100%)',
                         opacity: hoveredLogo === index ? 0.9 : 0.4,

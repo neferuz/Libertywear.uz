@@ -10,11 +10,18 @@ router = APIRouter(prefix="/contact-messages", tags=["contact-messages"])
 @router.post("/", response_model=ContactMessageSchema, status_code=status.HTTP_201_CREATED)
 def create_contact_message(message: ContactMessageCreate, db: Session = Depends(get_db)):
     """Создать новое сообщение обратной связи"""
-    new_message = ContactMessage(**message.dict())
-    db.add(new_message)
-    db.commit()
-    db.refresh(new_message)
-    return new_message
+    try:
+        print(f"📥 [contact_messages] Received message data: {message.dict()}")
+        new_message = ContactMessage(**message.dict())
+        db.add(new_message)
+        db.commit()
+        db.refresh(new_message)
+        print(f"✅ [contact_messages] Message created successfully with ID: {new_message.id}")
+        return new_message
+    except Exception as e:
+        print(f"❌ [contact_messages] Error creating message: {e}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error creating message: {str(e)}")
 
 @router.get("/", response_model=List[ContactMessageSchema])
 def get_contact_messages(

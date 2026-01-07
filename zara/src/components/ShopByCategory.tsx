@@ -1,12 +1,17 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { ArrowRight } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import Image from 'next/image';
+import { useLanguage } from '@/context/LanguageContext';
+import { t } from '@/lib/translations';
 
 interface Category {
   id: number;
   name: string;
   imageUrl: string;
   subtext: string;
+  slug?: string;
 }
 
 interface ShopByCategoryProps {
@@ -14,9 +19,17 @@ interface ShopByCategoryProps {
 }
 
 export function ShopByCategory({ categories }: ShopByCategoryProps) {
+  const router = useRouter();
+  const { language } = useLanguage();
   const [hoveredCategory, setHoveredCategory] = useState<number | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  
+  const handleCategoryClick = (category: Category) => {
+    if (category.slug) {
+      router.push(`/category/${category.slug}`);
+    }
+  };
 
   // Auto-scroll functionality
   useEffect(() => {
@@ -114,10 +127,10 @@ export function ShopByCategory({ categories }: ShopByCategoryProps) {
           className="mb-8 text-left lg:text-center px-6"
         >
           <h2 className="text-xl lg:text-3xl md:text-4xl mb-2 lg:mb-3 tracking-tight uppercase">
-            SHOP BY CATEGORY
+            {t('shopByCategory.title', language)}
           </h2>
           <p className="text-gray-600 text-xs lg:text-sm tracking-wide lg:max-w-xl lg:mx-auto">
-            Explore our curated collections designed for every style and occasion
+            {t('shopByCategory.description', language)}
           </p>
         </motion.div>
 
@@ -145,6 +158,7 @@ export function ShopByCategory({ categories }: ShopByCategoryProps) {
                 }}
                 onMouseEnter={() => setHoveredCategory(category.id)}
                 onMouseLeave={() => setHoveredCategory(null)}
+                onClick={() => handleCategoryClick(category)}
                 className="flex-shrink-0 snap-start w-[280px] lg:w-[380px] cursor-pointer"
               >
                 <div className="relative w-full overflow-hidden" style={{ aspectRatio: '6/7' }}>
@@ -159,10 +173,15 @@ export function ShopByCategory({ categories }: ShopByCategoryProps) {
                       ease: [0.25, 0.1, 0.25, 1],
                     }}
                   >
-                    <img
+                    <Image
                       src={category.imageUrl}
                       alt={category.name}
-                      className="w-full h-full object-cover"
+                      fill
+                      sizes="(max-width: 1024px) 280px, 380px"
+                      className="object-cover"
+                      loading="lazy"
+                      quality={85}
+                      unoptimized={false}
                     />
                   </motion.div>
 
@@ -211,7 +230,7 @@ export function ShopByCategory({ categories }: ShopByCategoryProps) {
                       {/* Shop Now */}
                       <div className="flex items-center justify-center space-x-2 text-white/90">
                         <span className="text-sm tracking-wide">
-                          {category.subtext}
+                          {t('shopByCategory.subtext', language)}
                         </span>
                         <motion.div
                           animate={{

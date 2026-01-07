@@ -51,6 +51,7 @@ class FAQItem(Base):
     question_translations = Column(JSON, nullable=True)  # Переводы вопроса
     answer = Column(Text, nullable=False)  # Старое поле
     answer_translations = Column(JSON, nullable=True)  # Переводы ответа
+    category = Column(String, nullable=True, default='All')  # Категория: All, Orders, Shipping, Returns, Products, Account
     order = Column(Integer, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

@@ -52,8 +52,8 @@ const getImageUrl = (url) => {
       if (urlObj.hostname.match(/^\d+\.\d+\.\d+\.\d+$/)) {
         // Это IP адрес, заменяем на правильный домен
         const path = urlObj.pathname;
+        const port = urlObj.port;
         // Определяем правильный домен на основе текущего местоположения
-        const protocol = window.location.protocol;
         const hostname = window.location.hostname;
         
         // Если админка на admin.libertywear.uz, используем libertywear.uz
@@ -61,7 +61,16 @@ const getImageUrl = (url) => {
           return `https://libertywear.uz${path}`;
         }
         
-        // Иначе используем тот же протокол и хост
+        // Если админка на localhost, используем localhost:8000
+        if (hostname === 'localhost' || hostname === '127.0.0.1') {
+          return `http://localhost:8000${path}`;
+        }
+        
+        // Иначе используем тот же протокол и хост с портом из исходного URL
+        const protocol = window.location.protocol;
+        if (port) {
+          return `${protocol}//${hostname}:${port}${path}`;
+        }
         return `${protocol}//${hostname}${path}`;
       }
       return url;
@@ -76,6 +85,11 @@ const getImageUrl = (url) => {
         return `https://libertywear.uz${url}`;
       }
       
+      // Для localhost используем localhost:8000
+      if (hostname === 'localhost' || hostname === '127.0.0.1') {
+        return `http://localhost:8000${url}`;
+      }
+      
       return `${protocol}//${hostname}${url}`;
     }
     
@@ -85,6 +99,11 @@ const getImageUrl = (url) => {
     
     if (hostname === 'admin.libertywear.uz') {
       return `https://libertywear.uz/${url}`;
+    }
+    
+    // Для localhost используем localhost:8000
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return `http://localhost:8000/${url}`;
     }
     
     return `${protocol}//${hostname}/${url}`;
@@ -502,6 +521,15 @@ const Partners = () => {
                           maxW="100px"
                           objectFit="contain"
                           borderRadius="4px"
+                          onError={(e) => {
+                            console.error('Error loading image:', getImageUrl(partner.logo_url));
+                            e.target.style.display = 'none';
+                            // Показываем fallback
+                            const fallback = e.target.nextSibling;
+                            if (fallback) {
+                              fallback.style.display = 'flex';
+                            }
+                          }}
                           fallback={
                             <Box
                               width="100px"
@@ -684,8 +712,23 @@ const Partners = () => {
                       border="1px solid"
                       borderColor="#e5e5e5"
                       p="10px"
+                      fallback={
+                        <Box
+                          width="200px"
+                          height="100px"
+                          bg="gray.100"
+                          borderRadius="4px"
+                          display="flex"
+                          alignItems="center"
+                          justifyContent="center"
+                          fontSize="10px"
+                          color="gray.400"
+                        >
+                          Не удалось загрузить изображение
+                        </Box>
+                      }
                       onError={(e) => {
-                        e.target.style.display = 'none';
+                        console.error('Error loading preview image:', getImageUrl(formData.logo_url));
                       }}
                     />
                   </Box>

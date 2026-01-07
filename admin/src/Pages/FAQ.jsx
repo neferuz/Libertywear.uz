@@ -23,6 +23,7 @@ import {
   ModalFooter,
   ModalCloseButton,
   useDisclosure,
+  Select,
 } from '@chakra-ui/react';
 import { FiPlus, FiEdit, FiTrash2 } from 'react-icons/fi';
 import axios from 'axios';
@@ -252,6 +253,7 @@ const FAQ = () => {
             setEditingItem({ 
               question: '', 
               answer: '', 
+              category: 'All',
               order: faqItems.length + 1,
               question_translations: { ru: '', uz: '', en: '', es: '' },
               answer_translations: { ru: '', uz: '', en: '', es: '' }
@@ -275,6 +277,17 @@ const FAQ = () => {
                   _expanded={{ bg: "gray.50" }}
                 >
                   <Box flex="1" textAlign="left">
+                    <Flex align="center" gap="10px" mb="5px">
+                      <Text
+                        fontSize="10px"
+                        fontWeight="500"
+                        letterSpacing="0.1em"
+                        color="gray.500"
+                        textTransform="uppercase"
+                      >
+                        {item.category || 'All'}
+                      </Text>
+                    </Flex>
                     <Text
                       fontSize={{ base: "13px", md: "14px" }}
                       fontWeight="500"
@@ -304,6 +317,7 @@ const FAQ = () => {
                           // Инициализируем переводы при открытии модального окна
                           const itemWithTranslations = {
                             ...item,
+                            category: item.category || 'All',
                             question_translations: item.question_translations || { 
                               ru: item.question || '', 
                               uz: '', 
@@ -349,6 +363,25 @@ const FAQ = () => {
           <ModalBody>
             {editingItem && (
                 <VStack spacing="20px" align="stretch">
+                  <Box>
+                    <Text fontSize="12px" mb="5px">Категория</Text>
+                    <Select
+                      value={editingItem.category || 'All'}
+                      onChange={(e) => {
+                        setEditingItem((prevItem) => ({ 
+                          ...prevItem, 
+                          category: e.target.value
+                        }));
+                      }}
+                    >
+                      <option value="All">All</option>
+                      <option value="Orders">Orders</option>
+                      <option value="Shipping">Shipping</option>
+                      <option value="Returns">Returns</option>
+                      <option value="Products">Products</option>
+                      <option value="Account">Account</option>
+                    </Select>
+                  </Box>
                   <Box>
                     <Text fontSize="12px" mb="5px">Вопрос (русский)</Text>
                     <Input

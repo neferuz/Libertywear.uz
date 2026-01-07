@@ -1,7 +1,40 @@
+'use client';
+
 import { motion } from 'motion/react';
 import { ArrowRight } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import Image from 'next/image';
+import { useLanguage } from '@/context/LanguageContext';
+import { fetchPromoBannerData, PromoBannerData } from '@/lib/api';
+import { getLanguageCode } from '@/lib/translations';
 
 export function PromoBanner() {
+  const { language } = useLanguage();
+  const [data, setData] = useState<PromoBannerData | null>(null);
+  const [isClient, setIsClient] = useState(false);
+
+  useEffect(() => {
+    setIsClient(true);
+    const loadData = async () => {
+      const currentLang = language || getLanguageCode();
+      const promoData = await fetchPromoBannerData(currentLang);
+      setData(promoData);
+    };
+    loadData();
+  }, [language]);
+
+  // Don't render if not active or data not loaded
+  if (!isClient || !data || !data.is_active) {
+    return null;
+  }
+
+  const currentLang = (language || getLanguageCode()) as 'ru' | 'uz' | 'en' | 'es';
+  const tag = data.tag_translations[currentLang] || data.tag_translations.en;
+  const title = data.title_translations[currentLang] || data.title_translations.en;
+  const subtitle = data.subtitle_translations[currentLang] || data.subtitle_translations.en;
+  const description = data.description_translations[currentLang] || data.description_translations.en;
+  const buttonText = data.button_text_translations[currentLang] || data.button_text_translations.en;
+
   return (
     <section className="py-20 px-6 lg:px-12 bg-[#2c3b6e]">
       <div className="max-w-[1600px] mx-auto">
@@ -21,7 +54,7 @@ export function PromoBanner() {
               transition={{ duration: 0.6, delay: 0.3 }}
               className="inline-block border border-white/30 px-4 py-1.5 mb-6 self-start"
             >
-              <span className="text-xs tracking-[0.15em]">LIMITED TIME OFFER</span>
+              <span className="text-xs tracking-[0.15em]">{tag}</span>
             </motion.div>
 
             <motion.h2
@@ -31,9 +64,9 @@ export function PromoBanner() {
               transition={{ duration: 0.6, delay: 0.4 }}
               className="text-4xl md:text-5xl lg:text-6xl mb-6 tracking-tight leading-tight"
             >
-              WINTER SALE
+              {title}
               <br />
-              UP TO 70% OFF
+              {subtitle}
             </motion.h2>
 
             <motion.p
@@ -43,8 +76,7 @@ export function PromoBanner() {
               transition={{ duration: 0.6, delay: 0.5 }}
               className="text-white/80 mb-8 text-base leading-relaxed max-w-md"
             >
-              Don't miss out on our biggest sale of the season. Premium quality clothing and
-              accessories at unbeatable prices.
+              {description}
             </motion.p>
 
             <motion.div
@@ -54,12 +86,12 @@ export function PromoBanner() {
               transition={{ duration: 0.6, delay: 0.6 }}
             >
               <motion.a
-                href="#sale"
+                href={data.button_link || '#sale'}
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.98 }}
                 className="inline-flex items-center space-x-3 bg-white text-black px-8 py-4 hover:bg-gray-100 transition-colors text-sm tracking-[0.1em]"
               >
-                <span>SHOP NOW</span>
+                <span>{buttonText}</span>
                 <ArrowRight className="w-4 h-4" strokeWidth={2} />
               </motion.a>
             </motion.div>
@@ -73,10 +105,12 @@ export function PromoBanner() {
             transition={{ duration: 0.8 }}
             className="relative min-h-[400px] lg:min-h-0"
           >
-            <img
-              src="https://images.unsplash.com/photo-1614714053570-6c6b6aa54a6d?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcmVtaXVtJTIwY2xvdGhpbmclMjBjYW1wYWlnbiUyMHVyYmFuJTIwc3R5bGV8ZW58MXx8fHwxNzY3MTMxOTQ0fDA&ixlib=rb-4.1.0&q=80&w=1080"
-              alt="Winter Sale"
-              className="w-full h-full object-cover"
+            <Image
+              src={data.image_url}
+              alt={title}
+              fill
+              className="object-cover"
+              priority
             />
           </motion.div>
         </div>

@@ -36,15 +36,28 @@ interface CategoryMenuProps {
 export function CategoryMenu({ category, isOpen, onClose, onMouseEnter, onMouseLeave }: CategoryMenuProps) {
   const [hoveredSubCategory, setHoveredSubCategory] = useState<number | null>(null);
 
+  // Debug: log category data
+  if (isOpen && category.subCategories.length > 0) {
+    console.log('🔍 [CategoryMenu] Category:', category.name);
+    console.log('🔍 [CategoryMenu] SubCategories:', category.subCategories.length);
+    console.log('🔍 [CategoryMenu] SubCategories data:', category.subCategories);
+  }
+
   if (!isOpen) return null;
+  
+  // If no subcategories, don't show menu
+  if (!category.subCategories || category.subCategories.length === 0) {
+    return null;
+  }
 
   return (
     <AnimatePresence>
       {isOpen && (
         <div
-          className="absolute top-full left-0 pt-2 z-50"
+          className="absolute top-full left-0 pt-2 z-50 category-menu-container"
           onMouseEnter={onMouseEnter}
           onMouseLeave={onMouseLeave}
+          style={{ marginTop: '-8px', paddingTop: '12px' }} // Overlap to prevent gap
         >
           <motion.div
             initial={{ opacity: 0, y: -10 }}
@@ -52,8 +65,8 @@ export function CategoryMenu({ category, isOpen, onClose, onMouseEnter, onMouseL
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.3, ease: [0.25, 0.1, 0.25, 1] }}
             className="bg-white border border-gray-200 shadow-2xl rounded-xl overflow-visible flex"
-            onMouseEnter={() => {}}
-            onMouseLeave={() => {}}
+            onMouseEnter={onMouseEnter}
+            onMouseLeave={onMouseLeave}
           >
             {/* Main Subcategories */}
             <div className="py-2 flex-shrink-0 min-w-[280px]">
@@ -99,8 +112,17 @@ export function CategoryMenu({ category, isOpen, onClose, onMouseEnter, onMouseL
                             exit={{ opacity: 0, x: -20 }}
                             transition={{ duration: 0.3, ease: [0.25, 0.1, 0.25, 1] }}
                             className="absolute left-full top-0 ml-1 bg-white border border-gray-200 shadow-2xl min-w-[240px] rounded-xl z-[60]"
-                            onMouseEnter={() => setHoveredSubCategory(subCategory.id)}
-                            onMouseLeave={() => {}}
+                            onMouseEnter={() => {
+                              setHoveredSubCategory(subCategory.id);
+                              if (onMouseEnter) onMouseEnter();
+                            }}
+                            onMouseLeave={(e) => {
+                              // Проверяем, не переходим ли мы в родительское меню
+                              const relatedTarget = e.relatedTarget as HTMLElement;
+                              if (!relatedTarget || !relatedTarget.closest('.category-menu-container')) {
+                                // Если уходим совсем, не закрываем сразу
+                              }
+                            }}
                           >
                             <div className="py-2">
                               {subCategory.subSubCategories.map((subSubCategory, subIndex) => (

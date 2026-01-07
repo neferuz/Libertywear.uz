@@ -2,7 +2,10 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ShoppingCart, ChevronLeft, ChevronRight } from 'lucide-react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useCart } from '@/context/CartContext';
+import { useLanguage } from '@/context/LanguageContext';
+import { t } from '@/lib/translations';
 
 interface Product {
   id: number;
@@ -16,6 +19,17 @@ interface FeaturedProductsProps {
   products: Product[];
 }
 
+// Format price with space as thousand separator and "сум" currency
+const formatPrice = (price: number): string => {
+  // Round to integer (no decimals for сум)
+  const integerPrice = Math.round(price);
+  
+  // Add space as thousand separator
+  const formattedPrice = integerPrice.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  
+  return `${formattedPrice} сум`;
+};
+
 export function FeaturedProducts({ products }: FeaturedProductsProps) {
   const [hoveredProduct, setHoveredProduct] = useState<number | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -25,6 +39,7 @@ export function FeaturedProducts({ products }: FeaturedProductsProps) {
   const [scrollLeft, setScrollLeft] = useState(0);
   const carouselRef = useRef<HTMLDivElement>(null);
   const { addToCart } = useCart();
+  const { language } = useLanguage();
 
   // Mobile carousel - show 1.5 products per view
   const totalSlides = products.length;
@@ -115,15 +130,15 @@ export function FeaturedProducts({ products }: FeaturedProductsProps) {
           transition={{ duration: 0.6 }}
           className="mb-8 text-left lg:text-center"
         >
-          <h2 className="text-xl lg:text-3xl md:text-4xl mb-2 lg:mb-3 tracking-tight">FEATURED PRODUCTS</h2>
+          <h2 className="text-xl lg:text-3xl md:text-4xl mb-2 lg:mb-3 tracking-tight">{t('featuredProducts.title', language)}</h2>
           <p className="text-gray-600 text-xs lg:text-sm tracking-wide">
-            Discover our handpicked selection of premium clothing
+            {t('featuredProducts.description', language)}
           </p>
         </motion.div>
 
         {/* Desktop: Grid Layout */}
         <div className="hidden lg:grid grid-cols-4 gap-8">
-          {products.map((product, index) => (
+          {products.length > 0 ? products.map((product, index) => (
             <Link key={product.id} href={`/product/${product.id}`}>
               <motion.div
                 initial={{ opacity: 0, y: 30 }}
@@ -136,15 +151,24 @@ export function FeaturedProducts({ products }: FeaturedProductsProps) {
               >
                 {/* Product Image */}
                 <div className="relative bg-gray-100 mb-2 overflow-hidden" style={{ aspectRatio: '5/6' }}>
-                  <motion.img
-                    src={product.imageUrl}
-                    alt={product.name}
-                    className="w-full h-full object-cover"
+                  <motion.div
                     animate={{
                       scale: hoveredProduct === product.id ? 1.08 : 1,
                     }}
                     transition={{ duration: 0.6, ease: 'easeOut' }}
-                  />
+                    className="absolute inset-0"
+                  >
+                    <Image
+                      src={product.imageUrl}
+                      alt={product.name}
+                      fill
+                      sizes="(max-width: 1024px) 100vw, 25vw"
+                      className="object-cover"
+                      loading="lazy"
+                      quality={85}
+                      unoptimized={false}
+                    />
+                  </motion.div>
                 </div>
 
                 {/* Product Info */}
@@ -155,11 +179,15 @@ export function FeaturedProducts({ products }: FeaturedProductsProps) {
                   <h3 className="text-sm group-hover:text-gray-600 transition-colors tracking-wide">
                     {product.name}
                   </h3>
-                  <p className="text-black">${product.price.toFixed(2)}</p>
+                  <p className="text-black">{formatPrice(product.price)}</p>
                 </div>
               </motion.div>
             </Link>
-          ))}
+          )) : (
+            <div className="col-span-4 text-center py-12">
+              <p className="text-gray-500 text-sm">{t('common.noProducts', language)}</p>
+            </div>
+          )}
         </div>
 
         {/* Mobile: Carousel - Show 1.5 products */}
@@ -180,11 +208,11 @@ export function FeaturedProducts({ products }: FeaturedProductsProps) {
             <div
               className="flex gap-3"
               style={{ 
-                width: `${products.length * 296}px`,
+                width: `${Math.max(products.length, 1) * 296}px`,
                 scrollSnapType: 'x mandatory',
               }}
             >
-              {products.map((product, index) => (
+              {products.length > 0 ? products.map((product, index) => (
                 <Link key={product.id} href={`/product/${product.id}`}>
                   <motion.div
                     initial={{ opacity: 0, y: 30 }}
@@ -206,15 +234,24 @@ export function FeaturedProducts({ products }: FeaturedProductsProps) {
                   >
                     {/* Product Image */}
                     <div className="relative bg-gray-100 mb-2 overflow-hidden" style={{ aspectRatio: '6/7', height: 'auto' }}>
-                      <motion.img
-                        src={product.imageUrl}
-                        alt={product.name}
-                        className="w-full h-full object-cover"
+                      <motion.div
                         animate={{
                           scale: hoveredProduct === product.id ? 1.08 : 1,
                         }}
                         transition={{ duration: 0.6, ease: 'easeOut' }}
-                      />
+                        className="absolute inset-0"
+                      >
+                        <Image
+                          src={product.imageUrl}
+                          alt={product.name}
+                          fill
+                          sizes="(max-width: 768px) 280px, 280px"
+                          className="object-cover"
+                          loading="lazy"
+                          quality={85}
+                          unoptimized={false}
+                        />
+                      </motion.div>
                     </div>
 
                     {/* Product Info */}
@@ -225,11 +262,15 @@ export function FeaturedProducts({ products }: FeaturedProductsProps) {
                       <h3 className="text-xs group-hover:text-gray-600 transition-colors tracking-wide line-clamp-2">
                         {product.name}
                       </h3>
-                      <p className="text-sm font-medium text-black">${product.price.toFixed(2)}</p>
+                      <p className="text-sm font-medium text-black">{formatPrice(product.price)}</p>
                     </div>
                   </motion.div>
                 </Link>
-              ))}
+              )) : (
+                <div className="flex-shrink-0 w-[280px] text-center py-12">
+                  <p className="text-gray-500 text-xs">{t('common.noProducts', language)}</p>
+                </div>
+              )}
             </div>
           </div>
 

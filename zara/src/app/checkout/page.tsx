@@ -8,43 +8,149 @@ import Link from 'next/link';
 import { UrbanNavigation } from '@/components/UrbanNavigation';
 import { UrbanFooter } from '@/components/UrbanFooter';
 import { useCart } from '@/context/CartContext';
+import { useLanguage } from '@/context/LanguageContext';
+import { t, getLanguageCode } from '@/lib/translations';
+import { createOrder, CreateOrderItem } from '@/lib/api';
+
+// Format price with space as thousand separator and "сум" currency
+const formatPrice = (price: number): string => {
+  // Round to integer (no decimals for сум)
+  const integerPrice = Math.round(price);
+  
+  // Add space as thousand separator
+  const formattedPrice = integerPrice.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  
+  return `${formattedPrice} сум`;
+};
 
 export default function CheckoutPage() {
   const router = useRouter();
-  const { items, getTotalPrice } = useCart();
+  const { items, getTotalPrice, removeFromCart } = useCart();
+  const { language } = useLanguage();
+  const [currentLang, setCurrentLang] = useState<string>('en');
+  const [isClient, setIsClient] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isCompleted, setIsCompleted] = useState(false);
   const [currentItemIndex, setCurrentItemIndex] = useState(0);
   const [isOrderSummaryExpanded, setIsOrderSummaryExpanded] = useState(false);
   const carouselRef = useRef<HTMLDivElement>(null);
 
-  // Load user data from profile (localStorage or context)
-  const loadUserData = () => {
-    if (typeof window !== 'undefined') {
-      const savedData = localStorage.getItem('userProfile');
-      if (savedData) {
-        try {
-          return JSON.parse(savedData);
-        } catch (e) {
-          return null;
-        }
-      }
-    }
-    return null;
-  };
-
-  const userData = loadUserData();
+  useEffect(() => {
+    // Set client-side flag to prevent hydration mismatch
+    setIsClient(true);
+    
+    // Use language from context first, fallback to getLanguageCode()
+    const lang = language || getLanguageCode();
+    setCurrentLang(lang);
+    
+    const handleLanguageChange = () => {
+      const newLang = language || getLanguageCode();
+      setCurrentLang(newLang);
+    };
+    window.addEventListener('storage', handleLanguageChange);
+    return () => {
+      window.removeEventListener('storage', handleLanguageChange);
+    };
+  }, [language]);
 
   const [formData, setFormData] = useState({
-    firstName: userData?.firstName || '',
-    lastName: userData?.lastName || '',
-    address: userData?.address || '',
-    city: userData?.city || '',
-    postalCode: userData?.postalCode || '',
-    country: userData?.country || '',
-    phone: userData?.phone || '',
+    firstName: '',
+    lastName: '',
+    address: '',
+    city: '',
+    postalCode: '',
+    country: 'Uzbekistan',
+    phone: '',
     paymentMethod: 'cash',
   });
+  const [isLoadingUserData, setIsLoadingUserData] = useState(true);
+
+  // Load user data from localStorage or API
+  useEffect(() => {
+    const loadUserData = async () => {
+      try {
+        setIsLoadingUserData(true);
+        
+        // First, try to get from localStorage
+        if (typeof window !== 'undefined') {
+          const savedData = localStorage.getItem('user_data');
+          const token = localStorage.getItem('auth_token');
+          
+          if (savedData) {
+            try {
+              const userData = JSON.parse(savedData);
+              console.log('📥 Загружены данные пользователя из localStorage:', userData);
+              
+              // Parse name into firstName and lastName
+              const nameParts = (userData.name || '').split(' ');
+              const firstName = nameParts[0] || '';
+              const lastName = nameParts.slice(1).join(' ') || '';
+              
+              setFormData({
+                firstName: firstName,
+                lastName: lastName,
+                address: userData.address || '',
+                city: userData.city || '',
+                postalCode: userData.pincode || userData.postal_code || '',
+                country: userData.state || userData.region || 'Uzbekistan',
+                phone: userData.phone || '',
+                paymentMethod: 'cash',
+              });
+              
+              setIsLoadingUserData(false);
+              return;
+            } catch (e) {
+              console.error('Ошибка парсинга данных из localStorage:', e);
+            }
+          }
+          
+          // If no data in localStorage but we have a token, try to fetch from API
+          if (token && !savedData) {
+            try {
+              const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/users/me`, {
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Content-Type': 'application/json',
+                },
+              });
+              
+              if (response.ok) {
+                const userData = await response.json();
+                console.log('📥 Загружены данные пользователя из API:', userData);
+                
+                // Parse name into firstName and lastName
+                const nameParts = (userData.name || '').split(' ');
+                const firstName = nameParts[0] || '';
+                const lastName = nameParts.slice(1).join(' ') || '';
+                
+                setFormData({
+                  firstName: firstName,
+                  lastName: lastName,
+                  address: userData.address || '',
+                  city: userData.city || '',
+                  postalCode: userData.pincode || userData.postal_code || '',
+                  country: userData.state || userData.region || userData.country || 'Uzbekistan',
+                  phone: userData.phone || '',
+                  paymentMethod: 'cash',
+                });
+                
+                // Save to localStorage for future use
+                localStorage.setItem('user_data', JSON.stringify(userData));
+              }
+            } catch (error) {
+              console.error('Ошибка загрузки данных пользователя из API:', error);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Ошибка загрузки данных пользователя:', error);
+      } finally {
+        setIsLoadingUserData(false);
+      }
+    };
+
+    loadUserData();
+  }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setFormData({
@@ -57,17 +163,74 @@ export default function CheckoutPage() {
     e.preventDefault();
     setIsProcessing(true);
     
-    // Simulate payment processing
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    
-    setIsProcessing(false);
-    setIsCompleted(true);
+    try {
+      // Проверяем, что пользователь авторизован
+      const token = localStorage.getItem('auth_token');
+      if (!token) {
+        alert(t('checkout.loginRequired', displayLang) || 'Please login to place an order');
+        router.push('/login');
+        setIsProcessing(false);
+        return;
+      }
+
+      // Формируем адрес из данных формы
+      const fullAddress = `${formData.firstName} ${formData.lastName}, ${formData.address}, ${formData.city}, ${formData.postalCode}, ${formData.phone}, ${formData.country}`;
+
+      // Преобразуем товары из корзины в формат для API
+      const orderItems: CreateOrderItem[] = items.map(item => {
+        // Извлекаем variant_id из item, если он есть
+        // Предполагаем, что item может содержать variantId или variant_id
+        const variantId = (item as any).variantId || (item as any).variant_id;
+        
+        return {
+          id: item.id,
+          productId: item.id,
+          variantId: variantId,
+          quantity: item.quantity,
+          price: item.price,
+          selectedSize: item.size,
+          imageURL: item.imageUrl,
+        };
+      });
+
+      console.log('📤 [Checkout] Creating order with items:', orderItems);
+      console.log('📤 [Checkout] Address:', fullAddress);
+      console.log('📤 [Checkout] Payment method:', formData.paymentMethod);
+
+      // Отправляем заказ на backend
+      const result = await createOrder(
+        orderItems,
+        fullAddress,
+        formData.paymentMethod,
+        '' // notes
+      );
+
+      console.log('✅ [Checkout] Order created successfully:', result);
+
+      // Очищаем корзину после успешного заказа
+      // Создаем копию массива items, так как мы будем изменять его во время итерации
+      const itemsToRemove = [...items];
+      itemsToRemove.forEach(item => {
+        removeFromCart(item.id);
+      });
+
+      // Показываем страницу успешного заказа
+      setIsProcessing(false);
+      setIsCompleted(true);
+    } catch (error: any) {
+      console.error('❌ [Checkout] Error creating order:', error);
+      alert(error.message || t('checkout.orderError', displayLang) || 'Failed to create order. Please try again.');
+      setIsProcessing(false);
+    }
   };
 
   const subtotal = getTotalPrice();
   const shipping = 15.00;
   const tax = subtotal * 0.1;
   const total = subtotal + shipping + tax;
+  
+  // Use default language until client-side hydration is complete
+  const displayLang = isClient ? currentLang : 'en';
 
   if (items.length === 0 && !isCompleted) {
     return (
@@ -75,9 +238,9 @@ export default function CheckoutPage() {
         <UrbanNavigation />
         <div className="pb-16 px-6 lg:px-12">
           <div className="max-w-[1600px] mx-auto pt-24 text-center">
-            <h1 className="text-2xl mb-4 text-[#2c3b6e]">Your cart is empty</h1>
+            <h1 className="text-2xl mb-4 text-[#2c3b6e]">{t('checkout.emptyCart', displayLang)}</h1>
             <Link href="/" className="text-[#2c3b6e] hover:text-black transition-colors">
-              Continue Shopping
+              {t('checkout.continueShopping', displayLang)}
             </Link>
           </div>
         </div>
@@ -109,10 +272,10 @@ export default function CheckoutPage() {
                 </div>
               </motion.div>
               <h1 className="text-3xl md:text-4xl tracking-tight text-[#2c3b6e]">
-                Order Confirmed!
+                {t('checkout.orderComplete', displayLang)}
               </h1>
               <p className="text-sm text-gray-600 leading-relaxed max-w-md mx-auto">
-                Thank you for your purchase. We've sent a confirmation email with your order details.
+                {t('checkout.confirmationMessage', displayLang)}
               </p>
               <motion.div
                 whileHover={{ scale: 1.02 }}
@@ -123,7 +286,7 @@ export default function CheckoutPage() {
                   href="/"
                   className="inline-block bg-[#2c3b6e] text-white px-8 py-4 hover:bg-black transition-colors text-sm tracking-[0.1em] uppercase"
                 >
-                  Continue Shopping
+                  {t('checkout.continueShopping', displayLang)}
                 </Link>
               </motion.div>
             </motion.div>
@@ -166,7 +329,7 @@ export default function CheckoutPage() {
               className="flex items-center gap-2 text-sm text-gray-600 hover:text-[#2c3b6e] transition-colors tracking-wide"
             >
               <ArrowLeft className="w-4 h-4" />
-              <span>Back</span>
+              <span>{t('checkout.back', displayLang)}</span>
             </button>
           </motion.div>
 
@@ -186,7 +349,7 @@ export default function CheckoutPage() {
               >
                 <div className="flex items-center gap-3">
                   <h2 className="text-lg tracking-tight text-[#2c3b6e] font-medium">
-                    Order Summary
+                    {t('checkout.orderSummary', displayLang)}
                   </h2>
                   <span className="text-xs text-gray-500">
                     ({items.length} {items.length === 1 ? 'item' : 'items'})
@@ -247,15 +410,15 @@ export default function CheckoutPage() {
                                           {item.name}
                                         </h3>
                                         {item.size && (
-                                          <p className="text-xs text-gray-500 mb-1">Size: {item.size}</p>
+                                          <p className="text-xs text-gray-500 mb-1">{t('checkout.size', displayLang)}: {item.size}</p>
                                         )}
                                         {item.color && (
-                                          <p className="text-xs text-gray-500 mb-1">Color: {item.color}</p>
+                                          <p className="text-xs text-gray-500 mb-1">{t('checkout.color', displayLang)}: {item.color}</p>
                                         )}
-                                        <p className="text-xs text-gray-500">Qty: {item.quantity}</p>
+                                        <p className="text-xs text-gray-500">{t('checkout.qty', displayLang)}: {item.quantity}</p>
                                       </div>
                                       <div className="text-sm font-medium text-black">
-                                        ${(item.price * item.quantity).toFixed(2)}
+                                        {formatPrice(item.price * item.quantity)}
                                       </div>
                                     </motion.div>
                                   ))}
@@ -309,29 +472,29 @@ export default function CheckoutPage() {
                       <div className="space-y-3 border-b border-gray-200 pb-6">
                         <div className="flex justify-between text-sm">
                           <span className="text-gray-600 tracking-wide">Subtotal</span>
-                          <span className="text-black">${subtotal.toFixed(2)}</span>
+                          <span className="text-black">{formatPrice(subtotal)}</span>
                         </div>
                         <div className="flex justify-between text-sm">
-                          <span className="text-gray-600 tracking-wide">Shipping</span>
-                          <span className="text-black">${shipping.toFixed(2)}</span>
+                          <span className="text-gray-600 tracking-wide">{t('checkout.shipping', displayLang)}</span>
+                          <span className="text-black">{formatPrice(shipping)}</span>
                         </div>
                         <div className="flex justify-between text-sm">
-                          <span className="text-gray-600 tracking-wide">Tax</span>
-                          <span className="text-black">${tax.toFixed(2)}</span>
+                          <span className="text-gray-600 tracking-wide">{t('checkout.tax', displayLang)}</span>
+                          <span className="text-black">{formatPrice(tax)}</span>
                         </div>
                       </div>
 
                       <div className="flex justify-between items-baseline pt-2">
-                        <span className="text-lg tracking-tight text-[#2c3b6e] font-medium">Total</span>
+                        <span className="text-lg tracking-tight text-[#2c3b6e] font-medium">{t('checkout.total', displayLang)}</span>
                         <span className="text-2xl tracking-tight text-black font-medium">
-                          ${total.toFixed(2)}
+                          {formatPrice(total)}
                         </span>
                       </div>
 
                       {/* Security Badge */}
                       <div className="flex items-center gap-2 text-xs text-gray-500 pt-4">
                         <Lock className="w-4 h-4" strokeWidth={1.5} />
-                        <span>Secure checkout</span>
+                        <span>{t('checkout.secureCheckout', displayLang)}</span>
                       </div>
                     </div>
                   </motion.div>
@@ -365,16 +528,24 @@ export default function CheckoutPage() {
                   transition={{ delay: 0.2 }}
                   className="space-y-4 lg:space-y-6"
                 >
-                  <div className="flex items-center gap-2">
-                    <MapPin className="w-5 h-5 text-[#2c3b6e]" strokeWidth={1.5} />
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <MapPin className="w-5 h-5 text-[#2c3b6e]" strokeWidth={1.5} />
                     <h2 className="text-lg lg:text-xl tracking-tight text-[#2c3b6e] border-b-2 border-[#2c3b6e] pb-2 inline-block">
-                      Shipping Address
+                      {t('checkout.shippingAddress', displayLang)}
                     </h2>
+                    </div>
+                    {isLoadingUserData && (
+                      <span className="text-xs text-gray-500">{t('checkout.loadingData', displayLang)}</span>
+                    )}
+                    {!isLoadingUserData && formData.firstName && (
+                      <span className="text-xs text-green-600">{t('checkout.dataLoaded', displayLang)}</span>
+                    )}
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-6">
                     <div>
                       <label className="block text-xs tracking-[0.1em] text-gray-700 uppercase mb-2">
-                        First Name
+                        {t('checkout.firstName', displayLang)}
                       </label>
                       <input
                         type="text"
@@ -388,7 +559,7 @@ export default function CheckoutPage() {
                     </div>
                     <div>
                       <label className="block text-xs tracking-[0.1em] text-gray-700 uppercase mb-2">
-                        Last Name
+                        {t('checkout.lastName', displayLang)}
                       </label>
                       <input
                         type="text"
@@ -403,7 +574,7 @@ export default function CheckoutPage() {
                   </div>
                   <div>
                     <label className="block text-xs tracking-[0.1em] text-gray-700 uppercase mb-2">
-                      Address
+                      {t('checkout.address', displayLang)}
                     </label>
                     <input
                       type="text"
@@ -418,7 +589,7 @@ export default function CheckoutPage() {
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <div>
                       <label className="block text-xs tracking-[0.1em] text-gray-700 uppercase mb-2">
-                        City
+                        {t('checkout.city', displayLang)}
                       </label>
                       <input
                         type="text"
@@ -432,7 +603,7 @@ export default function CheckoutPage() {
                     </div>
                     <div>
                       <label className="block text-xs tracking-[0.1em] text-gray-700 uppercase mb-2">
-                        Postal Code
+                        {t('checkout.postalCode', displayLang)}
                       </label>
                       <input
                         type="text"
@@ -446,7 +617,7 @@ export default function CheckoutPage() {
                     </div>
                     <div>
                       <label className="block text-xs tracking-[0.1em] text-gray-700 uppercase mb-2">
-                        Country
+                        {t('checkout.country', displayLang)}
                       </label>
                       <select
                         name="country"
@@ -455,7 +626,7 @@ export default function CheckoutPage() {
                         required
                         className="w-full px-4 py-3 border-b-2 border-gray-300 focus:border-[#2c3b6e] focus:outline-none bg-transparent text-sm tracking-wide transition-colors"
                       >
-                        <option value="">Select Country</option>
+                        <option value="">{t('checkout.selectCountry', displayLang)}</option>
                         <option value="UZ">Узбекистан</option>
                         <option value="US">United States</option>
                         <option value="UK">United Kingdom</option>
@@ -492,7 +663,7 @@ export default function CheckoutPage() {
                   <div className="flex items-center gap-2">
                     <CreditCard className="w-5 h-5 text-[#2c3b6e]" strokeWidth={1.5} />
                     <h2 className="text-lg lg:text-xl tracking-tight text-[#2c3b6e] border-b-2 border-[#2c3b6e] pb-2 inline-block">
-                      Payment Method
+                      {t('checkout.paymentMethod', displayLang)}
                     </h2>
                   </div>
                   <div className="space-y-4">
@@ -506,7 +677,7 @@ export default function CheckoutPage() {
                         className="w-4 h-4 text-[#2c3b6e]"
                       />
                       <Banknote className="w-5 h-5 text-gray-600" strokeWidth={1.5} />
-                      <span className="text-sm tracking-wide">Cash</span>
+                      <span className="text-sm tracking-wide">{t('checkout.cash', displayLang)}</span>
                     </label>
                     <label className="flex items-center gap-3 p-4 border-2 border-gray-200 hover:border-[#2c3b6e] transition-colors cursor-pointer">
                       <input
@@ -537,7 +708,7 @@ export default function CheckoutPage() {
               <div className="lg:sticky lg:top-6 space-y-6 max-h-[calc(100vh-3rem)] overflow-y-auto">
                 <div>
                   <h2 className="text-xl tracking-tight text-[#2c3b6e] mb-6 border-b-2 border-[#2c3b6e] pb-2 inline-block">
-                    Order Summary
+                    {t('checkout.orderSummary', displayLang)}
                   </h2>
                 </div>
 
@@ -581,15 +752,15 @@ export default function CheckoutPage() {
                                     {item.name}
                                   </h3>
                                   {item.size && (
-                                    <p className="text-xs text-gray-500 mb-1">Size: {item.size}</p>
+                                    <p className="text-xs text-gray-500 mb-1">{t('checkout.size', displayLang)}: {item.size}</p>
                                   )}
                                   {item.color && (
-                                    <p className="text-xs text-gray-500 mb-1">Color: {item.color}</p>
+                                    <p className="text-xs text-gray-500 mb-1">{t('checkout.color', displayLang)}: {item.color}</p>
                                   )}
-                                  <p className="text-xs text-gray-500">Qty: {item.quantity}</p>
+                                  <p className="text-xs text-gray-500">{t('checkout.qty', displayLang)}: {item.quantity}</p>
                                 </div>
                                 <div className="text-sm font-medium text-black">
-                                  ${(item.price * item.quantity).toFixed(2)}
+                                  {formatPrice(item.price * item.quantity)}
                                 </div>
                               </motion.div>
                             ))}
@@ -645,22 +816,22 @@ export default function CheckoutPage() {
                 <div className="space-y-3 border-b border-gray-200 pb-6">
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600 tracking-wide">Subtotal</span>
-                    <span className="text-black">${subtotal.toFixed(2)}</span>
+                    <span className="text-black">{formatPrice(subtotal)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-600 tracking-wide">Shipping</span>
-                    <span className="text-black">${shipping.toFixed(2)}</span>
+                    <span className="text-gray-600 tracking-wide">{t('checkout.shipping', displayLang)}</span>
+                    <span className="text-black">{formatPrice(shipping)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-600 tracking-wide">Tax</span>
-                    <span className="text-black">${tax.toFixed(2)}</span>
+                    <span className="text-gray-600 tracking-wide">{t('checkout.tax', displayLang)}</span>
+                    <span className="text-black">{formatPrice(tax)}</span>
                   </div>
                 </div>
 
                 <div className="flex justify-between items-baseline pt-2">
-                  <span className="text-lg tracking-tight text-[#2c3b6e] font-medium">Total</span>
+                  <span className="text-lg tracking-tight text-[#2c3b6e] font-medium">{t('checkout.total', displayLang)}</span>
                   <span className="text-2xl tracking-tight text-black font-medium">
-                    ${total.toFixed(2)}
+                    {formatPrice(total)}
                   </span>
                 </div>
 
@@ -688,11 +859,11 @@ export default function CheckoutPage() {
                   className="w-full bg-[#2c3b6e] text-white px-8 py-4 hover:bg-black transition-colors flex items-center justify-center space-x-2 text-sm tracking-[0.1em] disabled:opacity-50 disabled:cursor-not-allowed uppercase"
                 >
                   {isProcessing ? (
-                    <span>Processing...</span>
+                    <span>{t('checkout.processing', displayLang)}</span>
                   ) : (
                     <>
                       <Lock className="w-4 h-4" strokeWidth={2} />
-                      <span>PLACE ORDER</span>
+                      <span>{t('checkout.placeOrder', displayLang).toUpperCase()}</span>
                     </>
                   )}
                 </motion.button>

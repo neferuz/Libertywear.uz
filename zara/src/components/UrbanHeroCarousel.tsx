@@ -1,15 +1,18 @@
 import { useState, useEffect } from 'react';
+import Image from 'next/image';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChevronLeft, ChevronRight, ArrowRight } from 'lucide-react';
 
 interface Slide {
   id: number;
   imageUrl: string;
+  imageUrlMobile?: string;
   tag: string;
   headline: string;
   description: string;
   ctaText: string;
   ctaLink: string;
+  alt_text?: string;
 }
 
 interface UrbanHeroCarouselProps {
@@ -20,6 +23,17 @@ export function UrbanHeroCarousel({ slides }: UrbanHeroCarouselProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [direction, setDirection] = useState(0);
   const [isHovered, setIsHovered] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Detect mobile/desktop for image switching
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   useEffect(() => {
     if (!isHovered) {
@@ -63,6 +77,10 @@ export function UrbanHeroCarousel({ slides }: UrbanHeroCarouselProps) {
       className="relative w-full h-[500px] md:h-[600px] overflow-hidden bg-gray-900"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
+      style={{
+        // Desktop: 1920x600px, Mobile: 768x500px
+        minHeight: '500px',
+      }}
     >
       <AnimatePresence initial={false} custom={direction}>
         <motion.div
@@ -81,9 +99,20 @@ export function UrbanHeroCarousel({ slides }: UrbanHeroCarouselProps) {
           {/* Background Image */}
           <div className="absolute inset-0">
             <img
-              src={slides[currentIndex].imageUrl}
-              alt={slides[currentIndex].headline}
+              src={
+                isMobile && slides[currentIndex]?.imageUrlMobile
+                  ? slides[currentIndex].imageUrlMobile
+                  : slides[currentIndex]?.imageUrl || 'https://via.placeholder.com/1920x600'
+              }
+              alt={slides[currentIndex]?.headline || slides[currentIndex]?.alt_text || 'Slide'}
               className="w-full h-full object-cover"
+              style={{
+                // Desktop: 1920x600px, Mobile: 768x500px
+                objectPosition: 'center',
+              }}
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = 'https://via.placeholder.com/1920x600';
+              }}
             />
             <div className="absolute inset-0 bg-black/30" />
           </div>

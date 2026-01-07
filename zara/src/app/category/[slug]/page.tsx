@@ -4,10 +4,34 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Filter, X, ChevronDown, ChevronRight } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
+import Image from 'next/image';
 import { UrbanNavigation } from '@/components/UrbanNavigation';
 import { UrbanFooter } from '@/components/UrbanFooter';
+import { useLanguage } from '@/context/LanguageContext';
+import { t, getLanguageCode } from '@/lib/translations';
 import Link from 'next/link';
-import { fetchCategoryBySlug, fetchProducts, Category as APICategory, Product as APIProduct } from '@/lib/api';
+import { fetchCategoryBySlug, fetchCategories, fetchProducts, Category as APICategory, Product as APIProduct } from '@/lib/api';
+
+// Format price with space as thousand separator and "сум" currency
+const formatPrice = (price: number): string => {
+  // Round to integer (no decimals for сум)
+  const integerPrice = Math.round(price);
+  
+  // Add space as thousand separator
+  const formattedPrice = integerPrice.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  
+  return `${formattedPrice} сум`;
+};
+
+// Format number with space as thousand separator (for input display)
+const formatNumber = (num: number): string => {
+  return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+};
+
+// Parse formatted number (remove spaces) to number
+const parseFormattedNumber = (formatted: string): number => {
+  return parseInt(formatted.replace(/\s/g, ''), 10) || 0;
+};
 
 interface Product {
   id: number;
@@ -42,23 +66,43 @@ interface Category {
   subCategories: SubCategory[];
 }
 
+// Helper function to get translated text
+const getTranslatedText = (translations: any, lang: string, fallback: string): string => {
+  if (!translations) return fallback;
+  if (typeof translations === 'string') {
+    try {
+      translations = JSON.parse(translations);
+    } catch (e) {
+      return fallback;
+    }
+  }
+  return translations[lang] || translations['ru'] || translations['en'] || fallback;
+};
+
 // Helper function to transform API category to component format
-const transformCategory = (apiCat: APICategory): Category => {
+const transformCategory = (apiCat: APICategory, lang: string = 'en'): Category => {
   const slug = apiCat.slug || apiCat.title.toLowerCase().replace(/\s+/g, '-');
+  const title = getTranslatedText(apiCat.title_translations, lang, apiCat.title);
   return {
     id: apiCat.id,
-    name: apiCat.title.toUpperCase(),
+    name: title.toUpperCase(),
     href: `/category/${slug}`,
-    subCategories: apiCat.subcategories?.map((sub) => ({
-      id: sub.id,
-      name: sub.title,
-      href: `/category/${sub.slug || sub.title.toLowerCase().replace(/\s+/g, '-')}`,
-      subSubCategories: sub.subcategories?.map((subsub) => ({
-        id: subsub.id,
-        name: subsub.title,
-        href: `/category/${subsub.slug || subsub.title.toLowerCase().replace(/\s+/g, '-')}`,
-      })),
-    })) || [],
+    subCategories: apiCat.subcategories?.map((sub) => {
+      const subTitle = getTranslatedText(sub.title_translations, lang, sub.title);
+      return {
+        id: sub.id,
+        name: subTitle,
+        href: `/category/${sub.slug || sub.title.toLowerCase().replace(/\s+/g, '-')}`,
+        subSubCategories: sub.subcategories?.map((subsub) => {
+          const subSubTitle = getTranslatedText(subsub.title_translations, lang, subsub.title);
+          return {
+            id: subsub.id,
+            name: subSubTitle,
+            href: `/category/${subsub.slug || subsub.title.toLowerCase().replace(/\s+/g, '-')}`,
+          };
+        }),
+      };
+    }) || [],
   };
 };
 
@@ -362,6 +406,7 @@ export default function CategoryPage({
 }: { 
   params: { slug: string };
 }) {
+  const { language } = useLanguage();
   const searchParams = useSearchParams();
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [expandedSubCategories, setExpandedSubCategories] = useState<number[]>([]);
@@ -372,21 +417,92 @@ export default function CategoryPage({
   const subCategoryParam = searchParams.get('subCategory');
   const subSubCategoryParam = searchParams.get('subSubCategory');
   
+  // Get slug from params
+  const slug = params?.slug || '';
+  
   const [filters, setFilters] = useState<Filters>({
-    priceRange: [0, 1000],
+    priceRange: [0, 1000000], // Will be updated when products load
     subCategory: subCategoryParam || undefined,
     subSubCategory: subSubCategoryParam || undefined,
   });
 
+  // Slug mapping for Russian/transliterated slugs
+  const slugMap: { [key: string]: string } = {
+    'zhenschiny': 'women',
+    'zhenshchiny': 'women',
+    'muzhchiny': 'men',
+    'deti': 'kids',
+    'dety': 'kids',
+  };
+
   // Load category and products from API
   useEffect(() => {
+    if (!slug) {
+      console.warn('⚠️ [CategoryPage] No slug provided, params:', params);
+      setLoading(false);
+      setCategory(null);
+      return;
+    }
+    
     const loadData = async () => {
       try {
         setLoading(true);
-        const apiCategory = await fetchCategoryBySlug(params.slug, 'en');
+        const currentLang = getLanguageCode();
+        console.log('🔍 [CategoryPage] Starting loadData with:', {
+          slug: slug,
+          language: currentLang,
+          params: params,
+        });
+        
+        // Normalize slug - check if it's a transliterated version
+        const normalizedSlug = slugMap[slug.toLowerCase()] || slug;
+        console.log('🔍 [CategoryPage] Normalized slug:', normalizedSlug);
+        
+        // Try to find category by slug
+        let apiCategory = await fetchCategoryBySlug(normalizedSlug, currentLang);
+        
+        // If not found, try original slug
+        if (!apiCategory && slug !== normalizedSlug) {
+          console.log('🔍 [CategoryPage] Trying original slug:', slug);
+          apiCategory = await fetchCategoryBySlug(slug, currentLang);
+        }
+        
+        // If still not found, try to find by gender
+        if (!apiCategory) {
+          console.log('🔍 [CategoryPage] Category not found by slug, trying by gender');
+          const allCategories = await fetchCategories(currentLang);
+          const genderMap: { [key: string]: string } = {
+            'women': 'female',
+            'men': 'male',
+            'kids': 'kids',
+            'zhenschiny': 'female',
+            'zhenshchiny': 'female',
+            'muzhchiny': 'male',
+            'deti': 'kids',
+            'dety': 'kids',
+          };
+          const gender = genderMap[normalizedSlug.toLowerCase()] || genderMap[slug.toLowerCase()];
+          if (gender) {
+            apiCategory = allCategories.find(cat => cat.gender === gender) || null;
+            if (apiCategory) {
+              console.log('✅ [CategoryPage] Found category by gender:', {
+                id: apiCategory.id,
+                title: apiCategory.title,
+                slug: apiCategory.slug,
+                gender: apiCategory.gender,
+              });
+            }
+          }
+        }
+        
+        console.log('🔍 [CategoryPage] Final category:', apiCategory ? {
+          id: apiCategory.id,
+          title: apiCategory.title,
+          slug: apiCategory.slug,
+        } : 'null');
         
         if (apiCategory) {
-          const transformedCategory = transformCategory(apiCategory);
+          const transformedCategory = transformCategory(apiCategory, currentLang);
           setCategory(transformedCategory);
           
           // Load products for this category
@@ -394,37 +510,139 @@ export default function CategoryPage({
             'women': 'female',
             'men': 'male',
             'kids': 'kids',
+            'zhenschiny': 'female',
+            'zhenshchiny': 'female',
+            'muzhchiny': 'male',
+            'deti': 'kids',
+            'dety': 'kids',
           };
           
-          const gender = genderMap[params.slug.toLowerCase()] || params.slug.toLowerCase();
-          const productsData = await fetchProducts({
-            category_id: apiCategory.id,
+          const gender = genderMap[normalizedSlug.toLowerCase()] || genderMap[slug.toLowerCase()] || normalizedSlug.toLowerCase();
+          console.log('🔍 [CategoryPage] Fetching products with params:', {
             itemGender: gender,
-            lang: 'en',
+            lang: currentLang,
+            limit: 100,
+            note: 'Using only itemGender to get all products from category and subcategories',
+          });
+          
+          // Try multiple approaches to get products
+          let productsData = { products: [], total: 0 };
+          
+          // Approach 1: Use only itemGender (includes all subcategories)
+          console.log('🔍 [CategoryPage] Trying approach 1: itemGender only');
+          productsData = await fetchProducts({
+            itemGender: gender,
+            lang: currentLang,
             limit: 100,
           });
           
+          console.log('🔍 [CategoryPage] Approach 1 result:', {
+            productsCount: productsData.products.length,
+            total: productsData.total,
+          });
+          
+          // Approach 2: If no products, try with itemCategory
+          if (productsData.products.length === 0) {
+            console.log('🔍 [CategoryPage] Trying approach 2: itemCategory only');
+            productsData = await fetchProducts({
+              itemCategory: apiCategory.slug,
+              lang: currentLang,
+              limit: 100,
+            });
+            console.log('🔍 [CategoryPage] Approach 2 result:', {
+              productsCount: productsData.products.length,
+              total: productsData.total,
+            });
+          }
+          
+          // Approach 3: If still no products, try both
+          if (productsData.products.length === 0) {
+            console.log('🔍 [CategoryPage] Trying approach 3: itemCategory + itemGender');
+            productsData = await fetchProducts({
+              itemCategory: apiCategory.slug,
+              itemGender: gender,
+              lang: currentLang,
+              limit: 100,
+            });
+            console.log('🔍 [CategoryPage] Approach 3 result:', {
+              productsCount: productsData.products.length,
+              total: productsData.total,
+            });
+          }
+          
+          // Approach 4: If still no products, try without any filters (all products)
+          if (productsData.products.length === 0) {
+            console.log('🔍 [CategoryPage] Trying approach 4: no filters (all products)');
+            const allProductsData = await fetchProducts({
+              lang: currentLang,
+              limit: 100,
+            });
+            // Filter by category_id on client side
+            const filteredByCategory = allProductsData.products.filter(p => p.category_id === apiCategory.id);
+            productsData = {
+              products: filteredByCategory,
+              total: filteredByCategory.length,
+            };
+            console.log('🔍 [CategoryPage] Approach 4 result:', {
+              allProducts: allProductsData.products.length,
+              filteredByCategory: productsData.products.length,
+            });
+          }
+          
+          console.log('🔍 [CategoryPage] Final products response:', {
+            productsCount: productsData.products.length,
+            total: productsData.total,
+            allProducts: productsData.products.map(p => ({
+              id: p.id,
+              name: p.name,
+              category_id: p.category_id,
+            })),
+          });
+          
+          // Check for duplicates
+          const productIds = productsData.products.map(p => p.id);
+          const uniqueIds = [...new Set(productIds)];
+          if (productIds.length !== uniqueIds.length) {
+            console.warn('⚠️ [CategoryPage] Duplicate product IDs found!', {
+              total: productIds.length,
+              unique: uniqueIds.length,
+              duplicates: productIds.filter((id, index) => productIds.indexOf(id) !== index),
+            });
+          }
+          
           setProducts(productsData.products);
         } else {
-          // Fallback to default category
-          const fallbackCategory = categoriesDataFallback.find(
-            (cat) => cat.href === `/category/${params.slug}`
-          );
-          setCategory(fallbackCategory || null);
+          console.warn('⚠️ [CategoryPage] Category not found at all for slug:', slug);
+          setCategory(null);
+          setProducts([]);
         }
-      } catch (error) {
-        console.error('Error loading category:', error);
+      } catch (error: any) {
+        console.error('❌ [CategoryPage] Error loading category:', error);
+        console.error('❌ [CategoryPage] Error details:', {
+          message: error?.message,
+          stack: error?.stack,
+          slug: slug,
+        });
+        // Try fallback category
+        const normalizedSlug = slugMap[slug.toLowerCase()] || slug;
         const fallbackCategory = categoriesDataFallback.find(
-          (cat) => cat.href === `/category/${params.slug}`
+          (cat) => cat.href === `/category/${normalizedSlug}` || cat.href === `/category/${slug}`
         );
-        setCategory(fallbackCategory || null);
+        if (fallbackCategory) {
+          console.log('✅ [CategoryPage] Using fallback category:', fallbackCategory);
+          setCategory(fallbackCategory);
+        } else {
+          console.warn('⚠️ [CategoryPage] No fallback category found');
+          setCategory(null);
+        }
+        setProducts([]);
       } finally {
         setLoading(false);
       }
     };
 
     loadData();
-  }, [params.slug]);
+  }, [slug, language, params]); // Reload when slug, language, or params change
 
   // Update filters when searchParams change
   useEffect(() => {
@@ -435,15 +653,89 @@ export default function CategoryPage({
     }));
   }, [subCategoryParam, subSubCategoryParam]);
 
+  // Reset filters when language changes (because category names change)
+  useEffect(() => {
+    setFilters(prev => ({
+      ...prev,
+      priceRange: [0, prev.priceRange[1] || 1000000], // Keep max price if available
+      subCategory: subCategoryParam || undefined,
+      subSubCategory: subSubCategoryParam || undefined,
+    }));
+    setExpandedSubCategories([]);
+  }, [language]);
+
+  // Calculate max price from products for filter
+  const maxProductPrice = useMemo(() => {
+    if (products.length === 0) return 1000000; // Default max if no products
+    
+    const prices = products.map(p => {
+      return p.variants && p.variants.length > 0 ? p.variants[0].price : p.price;
+    });
+    
+    const max = Math.max(...prices);
+    // Round up to nearest 10000 for better UX
+    return Math.ceil(max / 10000) * 10000 || 1000000;
+  }, [products]);
+
+  // Update price range max when products change (only if it's still the default)
+  useEffect(() => {
+    if (maxProductPrice > 0 && maxProductPrice < 1000000 && filters.priceRange[1] >= 1000000) {
+      setFilters(prev => ({
+        ...prev,
+        priceRange: [prev.priceRange[0], maxProductPrice],
+      }));
+    }
+  }, [maxProductPrice]);
+
   // Filter products by category and filters
   const categoryProducts = useMemo(() => {
-    return products.filter((product) => {
+    console.log('🔍 [CategoryPage] Filtering products:', {
+      totalProducts: products.length,
+      filters: filters,
+      maxProductPrice: maxProductPrice,
+      productIds: products.map(p => p.id),
+      productNames: products.map(p => p.name),
+      productPrices: products.map(p => {
+        const price = p.variants && p.variants.length > 0 ? p.variants[0].price : p.price;
+        return { id: p.id, price: price };
+      }),
+    });
+    
+    // Remove duplicates by ID - keep first occurrence
+    const seenIds = new Set<number>();
+    const uniqueProducts = products.filter((product) => {
+      if (seenIds.has(product.id)) {
+        console.warn('⚠️ [CategoryPage] Duplicate product ID found:', product.id, product.name);
+        return false;
+      }
+      seenIds.add(product.id);
+      return true;
+    });
+    
+    console.log('🔍 [CategoryPage] Unique products after deduplication:', {
+      before: products.length,
+      after: uniqueProducts.length,
+      removed: products.length - uniqueProducts.length,
+    });
+    
+    const filtered = uniqueProducts.filter((product) => {
       // Apply price filter
       const productPrice = product.variants && product.variants.length > 0 
         ? product.variants[0].price 
         : product.price;
       
-      if (filters.priceRange[0] > productPrice || filters.priceRange[1] < productPrice) {
+      // Check if price is within range (inclusive)
+      const minPrice = filters.priceRange[0] || 0;
+      const maxPrice = filters.priceRange[1] || 1000000; // Large default max
+      
+      if (productPrice < minPrice || productPrice > maxPrice) {
+        console.log('🔍 [CategoryPage] Product filtered out by price:', {
+          id: product.id,
+          name: product.name,
+          price: productPrice,
+          minPrice: minPrice,
+          maxPrice: maxPrice,
+        });
         return false;
       }
       
@@ -452,6 +744,18 @@ export default function CategoryPage({
       
       return true;
     });
+    
+    console.log('🔍 [CategoryPage] Final filtered products:', {
+      count: filtered.length,
+      priceRange: filters.priceRange,
+      products: filtered.map(p => ({
+        id: p.id,
+        name: p.name,
+        price: p.variants?.[0]?.price || p.price,
+      })),
+    });
+    
+    return filtered;
   }, [products, filters]);
 
   const toggleSubCategory = (id: number) => {
@@ -461,9 +765,10 @@ export default function CategoryPage({
   };
 
   const clearFilters = () => {
-    setFilters({
-      priceRange: [0, 1000],
-    });
+    setFilters(prev => ({
+      ...prev,
+      priceRange: [0, maxProductPrice], // Use calculated max price
+    }));
   };
 
   if (loading) {
@@ -483,9 +788,9 @@ export default function CategoryPage({
       <div className="min-h-screen bg-white">
         <UrbanNavigation />
         <div className="pt-24 pb-16 px-6 lg:px-12 text-center">
-          <h1 className="text-2xl mb-4">Category not found</h1>
+          <h1 className="text-2xl mb-4">{t('category.categoryNotFound', getLanguageCode())}</h1>
           <Link href="/" className="text-[#2c3b6e] hover:text-black">
-            Go to homepage
+            {t('category.goToHomepage', getLanguageCode())}
           </Link>
         </div>
         <UrbanFooter />
@@ -509,7 +814,7 @@ export default function CategoryPage({
               {category.name}
             </h1>
             <p className="text-gray-600 text-sm mb-4">
-              {categoryProducts.length} {categoryProducts.length === 1 ? 'product' : 'products'} found
+              {categoryProducts.length} {categoryProducts.length === 1 ? t('category.product', getLanguageCode()) : t('category.products', getLanguageCode())} {t('category.found', getLanguageCode())}
             </p>
 
             {/* Breadcrumbs */}
@@ -569,7 +874,7 @@ export default function CategoryPage({
               className="lg:hidden w-full flex items-center justify-between px-4 py-4 bg-transparent border-b-2 border-gray-200 mb-6"
             >
               <span className="text-xs tracking-[0.12em] text-gray-600 uppercase">
-                Filters
+                {t('category.filters', getLanguageCode())}
               </span>
               <motion.div
                 animate={{ rotate: filtersOpen ? 180 : 0 }}
@@ -589,7 +894,7 @@ export default function CategoryPage({
               <div className="flex flex-col lg:flex-row lg:items-center lg:gap-6 lg:flex-wrap">
                 {/* Subcategories */}
                 <div className="w-full lg:w-auto flex-shrink-0 mb-4 lg:mb-0">
-                  <div className="flex flex-wrap gap-3">
+                  <div className="flex flex-wrap gap-1">
                     {category.subCategories.map((subCat, index) => (
                       <motion.div
                         key={subCat.id}
@@ -612,7 +917,7 @@ export default function CategoryPage({
                               }));
                             }
                           }}
-                          className={`text-xs tracking-[0.12em] py-3 px-6 transition-all duration-300 flex items-center gap-2 relative ${
+                          className={`text-xs tracking-[0.12em] py-2 px-3 transition-all duration-300 flex items-center gap-1.5 relative ${
                             filters.subCategory === subCat.name
                               ? 'text-[#2c3b6e] font-medium'
                               : 'text-gray-600 hover:text-[#2c3b6e]'
@@ -677,37 +982,65 @@ export default function CategoryPage({
                 {/* Price Range */}
                 <div className="w-full lg:w-auto flex-shrink-0 mb-4 lg:mb-0">
                   <div className="flex items-center gap-3">
-                    <motion.input
-                      whileFocus={{ scale: 1.02 }}
-                      type="number"
-                      min="0"
-                      max="1000"
-                      value={filters.priceRange[0]}
-                      onChange={(e) =>
-                        setFilters((prev) => ({
-                          ...prev,
-                          priceRange: [Number(e.target.value), prev.priceRange[1]],
-                        }))
-                      }
-                      className="w-24 px-4 py-2.5 border-b-2 border-gray-300 text-sm focus:outline-none focus:border-[#2c3b6e] bg-transparent transition-colors tracking-wide"
-                      placeholder="Min"
-                    />
+                    <div className="relative">
+                      <motion.input
+                        whileFocus={{ scale: 1.02 }}
+                        type="text"
+                        min="0"
+                        max={maxProductPrice}
+                        value={formatNumber(filters.priceRange[0])}
+                        onChange={(e) => {
+                          const parsed = parseFormattedNumber(e.target.value);
+                          if (!isNaN(parsed) && parsed >= 0 && parsed <= maxProductPrice) {
+                            setFilters((prev) => ({
+                              ...prev,
+                              priceRange: [parsed, prev.priceRange[1]],
+                            }));
+                          }
+                        }}
+                        onBlur={(e) => {
+                          const parsed = parseFormattedNumber(e.target.value);
+                          if (isNaN(parsed) || parsed < 0) {
+                            setFilters((prev) => ({
+                              ...prev,
+                              priceRange: [0, prev.priceRange[1]],
+                            }));
+                          }
+                        }}
+                        className="w-28 px-4 py-2.5 border-b-2 border-gray-300 text-sm focus:outline-none focus:border-[#2c3b6e] bg-transparent transition-colors tracking-wide"
+                        placeholder={t('category.min', getLanguageCode())}
+                      />
+                    </div>
                     <span className="text-gray-400 text-sm">-</span>
-                    <motion.input
-                      whileFocus={{ scale: 1.02 }}
-                      type="number"
-                      min="0"
-                      max="1000"
-                      value={filters.priceRange[1]}
-                      onChange={(e) =>
-                        setFilters((prev) => ({
-                          ...prev,
-                          priceRange: [prev.priceRange[0], Number(e.target.value)],
-                        }))
-                      }
-                      className="w-24 px-4 py-2.5 border-b-2 border-gray-300 text-sm focus:outline-none focus:border-[#2c3b6e] bg-transparent transition-colors tracking-wide"
-                      placeholder="Max"
-                    />
+                    <div className="relative">
+                      <motion.input
+                        whileFocus={{ scale: 1.02 }}
+                        type="text"
+                        min="0"
+                        max={maxProductPrice}
+                        value={formatNumber(filters.priceRange[1])}
+                        onChange={(e) => {
+                          const parsed = parseFormattedNumber(e.target.value);
+                          if (!isNaN(parsed) && parsed >= 0 && parsed <= maxProductPrice) {
+                            setFilters((prev) => ({
+                              ...prev,
+                              priceRange: [prev.priceRange[0], parsed],
+                            }));
+                          }
+                        }}
+                        onBlur={(e) => {
+                          const parsed = parseFormattedNumber(e.target.value);
+                          if (isNaN(parsed) || parsed < 0 || parsed < filters.priceRange[0]) {
+                            setFilters((prev) => ({
+                              ...prev,
+                              priceRange: [prev.priceRange[0], Math.max(prev.priceRange[0], maxProductPrice)],
+                            }));
+                          }
+                        }}
+                        className="w-28 px-4 py-2.5 border-b-2 border-gray-300 text-sm focus:outline-none focus:border-[#2c3b6e] bg-transparent transition-colors tracking-wide"
+                        placeholder={t('category.max', getLanguageCode())}
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -734,7 +1067,7 @@ export default function CategoryPage({
             {categoryProducts.length > 0 ? (
                 <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 lg:gap-8">
                   {categoryProducts.map((product, index) => (
-                    <Link key={product.id} href={`/product/${product.id}`}>
+                    <Link key={`product-${product.id}-${index}`} href={`/product/${product.id}`}>
                       <motion.div
                         initial={{ opacity: 0, y: 30 }}
                         animate={{ opacity: 1, y: 0 }}
@@ -743,11 +1076,19 @@ export default function CategoryPage({
                       >
                         {/* Product Image */}
                         <div className="relative bg-gray-100 mb-3 overflow-hidden aspect-[3/4]">
-                          <img
-                            src={getProductImageUrl(product)}
-                            alt={product.name}
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                          />
+                          <div className="absolute inset-0 group-hover:scale-105 transition-transform duration-500">
+                            <Image
+                              src={getProductImageUrl(product)}
+                              alt={product.name}
+                              fill
+                              sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+                              className="object-cover"
+                              loading={index < 4 ? "eager" : "lazy"}
+                              priority={index < 4}
+                              quality={85}
+                              unoptimized={false}
+                            />
+                          </div>
                         </div>
 
                         {/* Product Info */}
@@ -756,9 +1097,9 @@ export default function CategoryPage({
                             {product.name}
                           </h3>
                           <p className="text-black font-medium">
-                            ${product.variants && product.variants.length > 0 
+                            {formatPrice(product.variants && product.variants.length > 0 
                               ? product.variants[0].price 
-                              : product.price}
+                              : product.price)}
                           </p>
                         </div>
                       </motion.div>
@@ -767,12 +1108,12 @@ export default function CategoryPage({
                 </div>
               ) : (
                 <div className="text-center py-16">
-                  <p className="text-gray-600 mb-4">No products found</p>
+                  <p className="text-gray-600 mb-4">{t('category.noProductsFound', getLanguageCode())}</p>
                   <button
                     onClick={clearFilters}
                     className="text-[#2c3b6e] hover:text-black transition-colors"
                   >
-                    Clear filters
+                    {t('category.clearFilters', getLanguageCode())}
                   </button>
                 </div>
               )}

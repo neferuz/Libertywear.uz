@@ -90,6 +90,7 @@ class ContactInfo(ContactInfoBase):
 class FAQItemBase(BaseModel):
     question: str
     answer: str
+    category: Optional[str] = 'All'  # Категория: All, Orders, Shipping, Returns, Products, Account
     order: int = 0
     question_translations: Optional[Dict[str, str]] = None
     answer_translations: Optional[Dict[str, str]] = None
@@ -100,6 +101,7 @@ class FAQItemCreate(FAQItemBase):
 class FAQItemUpdate(BaseModel):
     question: Optional[str] = None
     answer: Optional[str] = None
+    category: Optional[str] = None
     order: Optional[int] = None
     question_translations: Optional[Dict[str, str]] = None
     answer_translations: Optional[Dict[str, str]] = None

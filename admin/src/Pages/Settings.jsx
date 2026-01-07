@@ -38,6 +38,7 @@ import {
 import { FiEdit2, FiTrash2, FiPlus, FiArrowUp, FiArrowDown, FiCheck, FiX } from 'react-icons/fi';
 import axios from 'axios';
 import { BASE_URL } from '../constants/config';
+import TranslationFields from '../Components/TranslationFields';
 
 const Settings = () => {
   const [slides, setSlides] = useState([]);
@@ -53,7 +54,8 @@ const Settings = () => {
   const fetchSlides = async () => {
     try {
       setLoading(true);
-      const res = await axios.get(`${BASE_URL}/slider/`);
+      const res = await axios.get(`${BASE_URL}/slider/?active_only=false`);
+      console.log('📥 Получены слайды:', res.data);
       const sortedSlides = (res.data || []).sort((a, b) => (a.order || 0) - (b.order || 0));
       setSlides(sortedSlides);
     } catch (error) {
@@ -95,7 +97,43 @@ const Settings = () => {
   };
 
   const handleEdit = (slide) => {
-    setEditingSlide({ ...slide });
+    // Helper function to normalize translations
+    const normalizeTranslations = (translations) => {
+      if (!translations) return { ru: '', uz: '', en: '', es: '' };
+      if (typeof translations === 'string') {
+        try {
+          const parsed = JSON.parse(translations || '{}');
+          return {
+            ru: parsed.ru || '',
+            uz: parsed.uz || '',
+            en: parsed.en || '',
+            es: parsed.es || '',
+          };
+        } catch {
+          return { ru: '', uz: '', en: '', es: '' };
+        }
+      }
+      if (typeof translations === 'object') {
+        return {
+          ru: translations.ru || '',
+          uz: translations.uz || '',
+          en: translations.en || '',
+          es: translations.es || '',
+        };
+      }
+      return { ru: '', uz: '', en: '', es: '' };
+    };
+
+    // Ensure translations are objects, not strings
+    const normalizedSlide = {
+      ...slide,
+      title_translations: normalizeTranslations(slide.title_translations),
+      tag_translations: normalizeTranslations(slide.tag_translations),
+      headline_translations: normalizeTranslations(slide.headline_translations),
+      description_translations: normalizeTranslations(slide.description_translations),
+      cta_text_translations: normalizeTranslations(slide.cta_text_translations),
+    };
+    setEditingSlide(normalizedSlide);
     onOpen();
   };
 
@@ -104,6 +142,12 @@ const Settings = () => {
       title: '',
       image_url_desktop: '',
       image_url_mobile: '',
+      title_translations: { ru: '', uz: '', en: '', es: '' },
+      tag_translations: { ru: '', uz: '', en: '', es: '' },
+      headline_translations: { ru: '', uz: '', en: '', es: '' },
+      description_translations: { ru: '', uz: '', en: '', es: '' },
+      cta_text_translations: { ru: '', uz: '', en: '', es: '' },
+      cta_link: '',
       order: slides.length,
       is_active: true,
     });
@@ -423,16 +467,6 @@ const SlideModal = ({ isOpen, onClose, slide, onSave }) => {
 
   const handleSubmit = async () => {
     // Валидация
-    if (!formData.title || !formData.title.trim()) {
-      toast({
-        title: 'Ошибка',
-        description: 'Название обязательно для заполнения',
-        status: 'error',
-        duration: 3000,
-      });
-      return;
-    }
-
     if (!formData.image_url_desktop || !formData.image_url_desktop.trim()) {
       toast({
         title: 'Ошибка',
@@ -444,9 +478,8 @@ const SlideModal = ({ isOpen, onClose, slide, onSave }) => {
     }
 
     try {
-      // Убираем пустые поля
+      // Убираем пустые поля и формируем данные для отправки
       const dataToSend = {
-        title: formData.title.trim(),
         image_url_desktop: formData.image_url_desktop.trim(),
         order: formData.order || 0,
         is_active: formData.is_active,
@@ -457,8 +490,76 @@ const SlideModal = ({ isOpen, onClose, slide, onSave }) => {
         dataToSend.image_url_mobile = formData.image_url_mobile.trim();
       }
 
+      // Добавляем legacy title если есть
+      if (formData.title && formData.title.trim()) {
+        dataToSend.title = formData.title.trim();
+      }
+
+      // Добавляем переводы названия
+      if (formData.title_translations) {
+        const titleTranslations = Object.fromEntries(
+          Object.entries(formData.title_translations).filter(([_, v]) => v && v.trim())
+        );
+        if (Object.keys(titleTranslations).length > 0) {
+          dataToSend.title_translations = titleTranslations;
+        }
+      }
+
+      // Добавляем переводы
+      if (formData.tag_translations) {
+        // Удаляем пустые значения
+        const tagTranslations = Object.fromEntries(
+          Object.entries(formData.tag_translations).filter(([_, v]) => v && v.trim())
+        );
+        if (Object.keys(tagTranslations).length > 0) {
+          dataToSend.tag_translations = tagTranslations;
+        }
+      }
+
+      if (formData.headline_translations) {
+        const headlineTranslations = Object.fromEntries(
+          Object.entries(formData.headline_translations).filter(([_, v]) => v && v.trim())
+        );
+        if (Object.keys(headlineTranslations).length > 0) {
+          dataToSend.headline_translations = headlineTranslations;
+        }
+      }
+
+      if (formData.description_translations) {
+        const descriptionTranslations = Object.fromEntries(
+          Object.entries(formData.description_translations).filter(([_, v]) => v && v.trim())
+        );
+        if (Object.keys(descriptionTranslations).length > 0) {
+          dataToSend.description_translations = descriptionTranslations;
+        }
+      }
+
+      if (formData.cta_text_translations) {
+        const ctaTextTranslations = Object.fromEntries(
+          Object.entries(formData.cta_text_translations).filter(([_, v]) => v && v.trim())
+        );
+        if (Object.keys(ctaTextTranslations).length > 0) {
+          dataToSend.cta_text_translations = ctaTextTranslations;
+        }
+      }
+
+      // Добавляем ссылку для кнопки
+      if (formData.cta_link && formData.cta_link.trim()) {
+        dataToSend.cta_link = formData.cta_link.trim();
+      } else if (formData.link && formData.link.trim()) {
+        dataToSend.link = formData.link.trim();
+      }
+
+      console.log('📤 Отправка данных:', JSON.stringify(dataToSend, null, 2));
+      
+      let response;
       if (slide.id) {
-        await axios.put(`${BASE_URL}/slider/${slide.id}`, dataToSend);
+        response = await axios.put(`${BASE_URL}/slider/${slide.id}`, dataToSend);
+        console.log('✅ Ответ от сервера (PUT):', response.data);
+        console.log('🔍 Проверка переводов в ответе:');
+        console.log('   - title_translations:', response.data.title_translations);
+        console.log('   - tag_translations:', response.data.tag_translations);
+        console.log('   - headline_translations:', response.data.headline_translations);
         toast({
           title: 'Успешно',
           description: 'Слайд обновлен',
@@ -466,7 +567,8 @@ const SlideModal = ({ isOpen, onClose, slide, onSave }) => {
           duration: 2000,
         });
       } else {
-        await axios.post(`${BASE_URL}/slider/`, dataToSend);
+        response = await axios.post(`${BASE_URL}/slider/`, dataToSend);
+        console.log('✅ Ответ от сервера (POST):', response.data);
         toast({
           title: 'Успешно',
           description: 'Слайд создан',
@@ -474,7 +576,11 @@ const SlideModal = ({ isOpen, onClose, slide, onSave }) => {
           duration: 2000,
         });
       }
-      onSave();
+      
+      // Небольшая задержка перед обновлением списка
+      setTimeout(() => {
+        onSave();
+      }, 500);
     } catch (error) {
       toast({
         title: 'Ошибка',
@@ -500,9 +606,24 @@ const SlideModal = ({ isOpen, onClose, slide, onSave }) => {
         <ModalCloseButton />
         <ModalBody pb="30px">
           <VStack spacing="20px" align="stretch">
-            <FormControl isRequired>
+            {/* Title Translations */}
+            <FormControl>
               <FormLabel fontSize="12px" fontWeight="400" letterSpacing="0.5px" textTransform="uppercase">
-                Название *
+                Название (переводы на 4 языка)
+              </FormLabel>
+              <TranslationFields
+                fieldName="title"
+                label="Название"
+                value={formData.title_translations || { ru: '', uz: '', en: '', es: '' }}
+                onChange={(translations) => setFormData({ ...formData, title_translations: translations })}
+                placeholder="Название слайда"
+              />
+            </FormControl>
+
+            {/* Legacy Title Field */}
+            <FormControl>
+              <FormLabel fontSize="12px" fontWeight="400" letterSpacing="0.5px" textTransform="uppercase">
+                Название (legacy, необязательно)
               </FormLabel>
               <Input
                 value={formData.title || ''}
@@ -510,14 +631,86 @@ const SlideModal = ({ isOpen, onClose, slide, onSave }) => {
                 borderRadius="20px"
                 borderColor="#e5e5e5"
                 _focus={{ borderColor: "black", boxShadow: "none" }}
-                placeholder="Введите название слайда"
+                placeholder="Введите название слайда (для обратной совместимости)"
+              />
+            </FormControl>
+
+            {/* Tag Translations */}
+            <FormControl>
+              <FormLabel fontSize="12px" fontWeight="400" letterSpacing="0.5px" textTransform="uppercase">
+                Тег/Метка (переводы на 4 языка)
+              </FormLabel>
+              <TranslationFields
+                fieldName="tag"
+                label="Тег/Метка"
+                value={formData.tag_translations || { ru: '', uz: '', en: '', es: '' }}
+                onChange={(translations) => setFormData({ ...formData, tag_translations: translations })}
+                placeholder="NEW COLLECTION"
+              />
+            </FormControl>
+
+            {/* Headline Translations */}
+            <FormControl>
+              <FormLabel fontSize="12px" fontWeight="400" letterSpacing="0.5px" textTransform="uppercase">
+                Заголовок (переводы на 4 языка)
+              </FormLabel>
+              <TranslationFields
+                fieldName="headline"
+                label="Заголовок"
+                value={formData.headline_translations || { ru: '', uz: '', en: '', es: '' }}
+                onChange={(translations) => setFormData({ ...formData, headline_translations: translations })}
+                placeholder="Новая коллекция"
+              />
+            </FormControl>
+
+            {/* Description Translations */}
+            <FormControl>
+              <FormLabel fontSize="12px" fontWeight="400" letterSpacing="0.5px" textTransform="uppercase">
+                Описание (переводы на 4 языка)
+              </FormLabel>
+              <TranslationFields
+                fieldName="description"
+                label="Описание"
+                value={formData.description_translations || { ru: '', uz: '', en: '', es: '' }}
+                onChange={(translations) => setFormData({ ...formData, description_translations: translations })}
+                placeholder="Откройте для себя нашу коллекцию"
+                isTextarea
+              />
+            </FormControl>
+
+            {/* CTA Text Translations */}
+            <FormControl>
+              <FormLabel fontSize="12px" fontWeight="400" letterSpacing="0.5px" textTransform="uppercase">
+                Текст кнопки (переводы на 4 языка)
+              </FormLabel>
+              <TranslationFields
+                fieldName="cta_text"
+                label="Текст кнопки"
+                value={formData.cta_text_translations || { ru: '', uz: '', en: '', es: '' }}
+                onChange={(translations) => setFormData({ ...formData, cta_text_translations: translations })}
+                placeholder="КУПИТЬ СЕЙЧАС"
+              />
+            </FormControl>
+
+            {/* CTA Link */}
+            <FormControl>
+              <FormLabel fontSize="12px" fontWeight="400" letterSpacing="0.5px" textTransform="uppercase">
+                Ссылка для кнопки
+              </FormLabel>
+              <Input
+                value={formData.cta_link || formData.link || ''}
+                onChange={(e) => setFormData({ ...formData, cta_link: e.target.value, link: e.target.value })}
+                borderRadius="20px"
+                borderColor="#e5e5e5"
+                _focus={{ borderColor: "black", boxShadow: "none" }}
+                placeholder="/category/women или https://example.com"
               />
             </FormControl>
 
             {/* Desktop Image */}
-            <FormControl>
+            <FormControl isRequired>
               <FormLabel fontSize="12px" fontWeight="400" letterSpacing="0.5px" textTransform="uppercase">
-                Изображение для десктопа *
+                Изображение для десктопа * (1920x600px)
               </FormLabel>
               <Tabs index={activeTab} onChange={setActiveTab}>
                 <TabList>
@@ -562,7 +755,7 @@ const SlideModal = ({ isOpen, onClose, slide, onSave }) => {
             {/* Mobile Image */}
             <FormControl>
               <FormLabel fontSize="12px" fontWeight="400" letterSpacing="0.5px" textTransform="uppercase">
-                Изображение для мобильной версии (необязательно)
+                Изображение для мобильной версии (768x500px, необязательно)
               </FormLabel>
               <Input
                 value={formData.image_url_mobile || ''}

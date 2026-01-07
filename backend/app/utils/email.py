@@ -31,7 +31,15 @@ async def send_verification_email(email: str, code: str) -> bool:
         smtp_from_name = settings.SMTP_FROM_NAME or "Liberty"
         
         # Если SMTP не настроен, выводим в консоль для разработки
-        if not smtp_user or not smtp_password:
+        # Проверяем, что это не шаблонные значения
+        is_template = (
+            not smtp_user or 
+            not smtp_password or 
+            smtp_user == "your-email@gmail.com" or 
+            "your-" in smtp_user.lower() or 
+            "your-" in smtp_password.lower()
+        )
+        if is_template:
             print(f"\n{'='*70}")
             print(f"📧 [LIBERTY] КОД ПОДТВЕРЖДЕНИЯ")
             print(f"{'='*70}")

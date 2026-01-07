@@ -6,7 +6,9 @@ import { CartModal } from './CartModal';
 import { SearchModal } from './SearchModal';
 import { CategoryMenu } from './CategoryMenu';
 import { useCart } from '@/context/CartContext';
+import { useLanguage } from '@/context/LanguageContext';
 import { fetchCategories, Category as APICategory } from '@/lib/api';
+import { getLanguageCode, t } from '@/lib/translations';
 
 interface SubSubCategory {
   id: number;
@@ -29,6 +31,7 @@ interface Category {
 }
 
 export function UrbanNavigation() {
+  const { language } = useLanguage();
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [languageOpen, setLanguageOpen] = useState(false);
@@ -45,6 +48,7 @@ export function UrbanNavigation() {
 
   const [hoveredCategory, setHoveredCategory] = useState<string | null>(null);
   const categoryCloseTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   // Mobile menu navigation state
   const [mobileMenuLevel, setMobileMenuLevel] = useState<'categories' | 'subcategories' | 'subsubcategories'>('categories');
@@ -56,9 +60,51 @@ export function UrbanNavigation() {
   const languages = [
     { code: 'EN', name: 'English' },
     { code: 'RU', name: 'Русский' },
-    { code: 'FR', name: 'Français' },
-    { code: 'DE', name: 'Deutsch' },
+    { code: 'UZ', name: "O'zbekcha" },
+    { code: 'ES', name: 'Español' },
   ];
+
+  // Load language from localStorage on mount
+  useEffect(() => {
+    const stored = localStorage.getItem('selectedLanguage');
+    if (stored) {
+      try {
+        const lang = JSON.parse(stored);
+        setSelectedLanguage(lang);
+      } catch (e) {
+        // Keep default
+      }
+    }
+  }, []);
+
+  // Check authentication status
+  useEffect(() => {
+    const checkAuth = () => {
+      if (typeof window === 'undefined') return;
+      const token = localStorage.getItem('auth_token');
+      const hasToken = !!token;
+      setIsAuthenticated(hasToken);
+    };
+    
+    // Check immediately
+    checkAuth();
+    
+    // Check periodically for auth changes (every 500ms for faster response)
+    const interval = setInterval(checkAuth, 500);
+    
+    // Listen to storage events (for cross-tab updates)
+    window.addEventListener('storage', checkAuth);
+    
+    // Also listen to custom events (for same-tab updates)
+    const handleAuthChange = () => checkAuth();
+    window.addEventListener('auth-changed', handleAuthChange);
+    
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('storage', checkAuth);
+      window.removeEventListener('auth-changed', handleAuthChange);
+    };
+  }, []);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -152,25 +198,48 @@ export function UrbanNavigation() {
   const [categoriesData, setCategoriesData] = useState<Category[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
 
+  // Helper to get translated text from translations object
+  const getTranslatedText = (translations: any, lang: string, fallback: string): string => {
+    if (!translations) return fallback;
+    if (typeof translations === 'string') {
+      try {
+        translations = JSON.parse(translations);
+      } catch (e) {
+        return fallback;
+      }
+    }
+    // Use translation for current language if available
+    if (translations[lang]) return translations[lang];
+    // Fallback to ru, then en
+    if (translations['ru']) return translations['ru'];
+    if (translations['en']) return translations['en'];
+    // If no translation found, return fallback
+    return fallback;
+  };
+
   // Transform API categories to component format
-  const transformCategory = (apiCat: APICategory): Category => {
+  const transformCategory = (apiCat: APICategory, currentLang: string): Category => {
     const slug = apiCat.slug || apiCat.title.toLowerCase().replace(/\s+/g, '-');
+    // Use translations if available
+    const categoryName = getTranslatedText(apiCat.title_translations, currentLang, apiCat.title);
     
     return {
       id: apiCat.id,
-      name: apiCat.title.toUpperCase(),
+      name: categoryName.toUpperCase(),
       href: `/category/${slug}`,
       subCategories: apiCat.subcategories?.map((sub) => {
         const subSlug = sub.slug || sub.title.toLowerCase().replace(/\s+/g, '-');
+        const subName = getTranslatedText(sub.title_translations, currentLang, sub.title);
         return {
           id: sub.id,
-          name: sub.title,
+          name: subName,
           href: `/category/${subSlug}`,
           subSubCategories: sub.subcategories?.map((subsub) => {
             const subsubSlug = subsub.slug || subsub.title.toLowerCase().replace(/\s+/g, '-');
+            const subsubName = getTranslatedText(subsub.title_translations, currentLang, subsub.title);
             return {
               id: subsub.id,
-              name: subsub.title,
+              name: subsubName,
               href: `/category/${subsubSlug}`,
             };
           }),
@@ -184,8 +253,9 @@ export function UrbanNavigation() {
     const loadCategories = async () => {
       try {
         setCategoriesLoading(true);
-        console.log('Loading categories from API...');
-        const apiCategories = await fetchCategories('en');
+        const currentLang = getLanguageCode();
+        console.log('Loading categories from API with language:', currentLang);
+        const apiCategories = await fetchCategories(currentLang);
         
         console.log('✅ Loaded categories from API:', apiCategories);
         console.log('Number of categories:', apiCategories.length);
@@ -195,8 +265,18 @@ export function UrbanNavigation() {
           throw new Error('No categories found');
         }
         
-        // Transform all categories
-        const allTransformed = apiCategories.map((cat) => transformCategory(cat));
+        // Transform all categories with current language
+        const allTransformed = apiCategories.map((cat) => {
+          const transformed = transformCategory(cat, currentLang);
+          console.log(`🔍 [Transform] ${cat.title} (lang: ${currentLang}):`, {
+            originalTitle: cat.title,
+            titleTranslations: cat.title_translations,
+            transformedName: transformed.name,
+            subcategories: cat.subcategories?.length || 0,
+            transformedSubCategories: transformed.subCategories.length
+          });
+          return transformed;
+        });
         console.log('✅ Transformed categories:', allTransformed);
         
         // Try to find WOMEN, MEN, KIDS categories - be more flexible
@@ -314,7 +394,7 @@ export function UrbanNavigation() {
     };
 
     loadCategories();
-  }, []);
+  }, [language]);
 
   return (
     <nav className="sticky top-0 z-50 bg-white">
@@ -348,7 +428,7 @@ export function UrbanNavigation() {
               categoriesData.map((category) => (
               <div
                 key={category.id}
-                className="relative"
+                className="relative category-menu-container"
                 onMouseEnter={() => {
                   if (categoryCloseTimeoutRef.current) {
                     clearTimeout(categoryCloseTimeoutRef.current);
@@ -356,10 +436,14 @@ export function UrbanNavigation() {
                   }
                   setHoveredCategory(category.name);
                 }}
-                onMouseLeave={() => {
+                onMouseLeave={(e) => {
+                  // Проверяем, не переходим ли мы в дочернее меню
+                  const relatedTarget = e.relatedTarget as HTMLElement | null;
+                  if (!relatedTarget || typeof relatedTarget.closest !== 'function' || !relatedTarget.closest('.category-menu-container')) {
                   categoryCloseTimeoutRef.current = setTimeout(() => {
                     setHoveredCategory(null);
-                  }, 150);
+                    }, 500);
+                  }
                 }}
               >
                 <Link
@@ -381,7 +465,13 @@ export function UrbanNavigation() {
                 <CategoryMenu
                   category={category}
                   isOpen={hoveredCategory === category.name}
-                  onClose={() => setHoveredCategory(null)}
+                  onClose={() => {
+                    if (categoryCloseTimeoutRef.current) {
+                      clearTimeout(categoryCloseTimeoutRef.current);
+                      categoryCloseTimeoutRef.current = null;
+                    }
+                    setHoveredCategory(null);
+                  }}
                   onMouseEnter={() => {
                     if (categoryCloseTimeoutRef.current) {
                       clearTimeout(categoryCloseTimeoutRef.current);
@@ -392,7 +482,7 @@ export function UrbanNavigation() {
                   onMouseLeave={() => {
                     categoryCloseTimeoutRef.current = setTimeout(() => {
                       setHoveredCategory(null);
-                    }, 150);
+                    }, 500);
                   }}
                 />
               </div>
@@ -409,7 +499,7 @@ export function UrbanNavigation() {
                 whileHover={{ y: -1 }}
                 transition={{ duration: 0.2 }}
               >
-                ABOUT US
+                {t('navigation.aboutUs', language)}
                 <motion.span
                   className="absolute -bottom-1 left-0 h-px bg-[#2c3b6e] w-0 group-hover:w-full transition-all duration-300"
                 />
@@ -424,7 +514,7 @@ export function UrbanNavigation() {
                 whileHover={{ y: -1 }}
                 transition={{ duration: 0.2 }}
               >
-                FAQs
+                {t('navigation.faqs', language)}
                 <motion.span
                   className="absolute -bottom-1 left-0 h-px bg-[#2c3b6e] w-0 group-hover:w-full transition-all duration-300"
                 />
@@ -439,7 +529,7 @@ export function UrbanNavigation() {
                 whileHover={{ y: -1 }}
                 transition={{ duration: 0.2 }}
               >
-                CONTACT US
+                {t('navigation.contactUs', language)}
                 <motion.span
                   className="absolute -bottom-1 left-0 h-px bg-[#2c3b6e] w-0 group-hover:w-full transition-all duration-300"
                 />
@@ -490,7 +580,18 @@ export function UrbanNavigation() {
             </motion.button>
 
             {/* Mobile: User Profile */}
-            <Link href="/login" className="lg:hidden">
+            <Link href={isAuthenticated ? "/account" : "/login"} className="lg:hidden">
+              <motion.button
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.95 }}
+                className="flex items-center justify-center text-black hover:text-gray-600 transition-colors h-6"
+              >
+                <User className="w-[18px] h-[18px]" strokeWidth={1.5} />
+              </motion.button>
+            </Link>
+
+            {/* Desktop: User Profile */}
+            <Link href={isAuthenticated ? "/account" : "/login"} className="hidden lg:flex">
               <motion.button
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.95 }}
@@ -551,6 +652,10 @@ export function UrbanNavigation() {
                         whileHover={{ backgroundColor: '#f9fafb' }}
                         onClick={() => {
                           setSelectedLanguage(lang);
+                          // Save to localStorage
+                          localStorage.setItem('selectedLanguage', JSON.stringify(lang));
+                          // Trigger storage event for other components
+                          window.dispatchEvent(new Event('storage'));
                           setMoreMenuOpen(false);
                         }}
                         className={`w-full px-4 py-2 text-left text-xs tracking-wide transition-colors ${
@@ -566,17 +671,6 @@ export function UrbanNavigation() {
                 )}
               </AnimatePresence>
             </div>
-
-            {/* Desktop: User Profile */}
-            <Link href="/login">
-            <motion.button
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.95 }}
-                className="hidden lg:flex items-center justify-center text-black hover:text-gray-600 transition-colors h-6"
-            >
-              <User className="w-[18px] h-[18px]" strokeWidth={1.5} />
-            </motion.button>
-            </Link>
 
             {/* Desktop: Language Selector */}
             <div className="hidden lg:flex items-center justify-center relative h-6" ref={languageRef}>
@@ -605,6 +699,10 @@ export function UrbanNavigation() {
                         whileHover={{ backgroundColor: '#f9fafb' }}
                         onClick={() => {
                           setSelectedLanguage(lang);
+                          // Save to localStorage
+                          localStorage.setItem('selectedLanguage', JSON.stringify(lang));
+                          // Trigger storage event for other components
+                          window.dispatchEvent(new Event('storage'));
                           setLanguageOpen(false);
                         }}
                         className={`w-full px-4 py-2.5 text-left text-xs tracking-wide transition-colors ${
@@ -770,7 +868,7 @@ export function UrbanNavigation() {
                             onClick={() => setMobileMenuOpen(false)}
                             className="w-full flex items-center justify-between px-4 py-4 text-left text-sm tracking-[0.12em] text-[#2c3b6e] hover:text-black transition-colors rounded-lg"
                           >
-                            <span className="font-medium">ABOUT US</span>
+                            <span className="font-medium">{t('navigation.aboutUs', language)}</span>
                           </motion.div>
                         </Link>
 
@@ -789,7 +887,7 @@ export function UrbanNavigation() {
                             onClick={() => setMobileMenuOpen(false)}
                             className="w-full flex items-center justify-between px-4 py-4 text-left text-sm tracking-[0.12em] text-[#2c3b6e] hover:text-black transition-colors rounded-lg"
                           >
-                            <span className="font-medium">FAQs</span>
+                            <span className="font-medium">{t('navigation.faqs', language)}</span>
                           </motion.div>
                         </Link>
 
@@ -808,45 +906,7 @@ export function UrbanNavigation() {
                             onClick={() => setMobileMenuOpen(false)}
                             className="w-full flex items-center justify-between px-4 py-4 text-left text-sm tracking-[0.12em] text-[#2c3b6e] hover:text-black transition-colors rounded-lg"
                           >
-                            <span className="font-medium">CONTACT US</span>
-                          </motion.div>
-                        </Link>
-
-                        {/* FAQs Link */}
-                        <Link href="/faq">
-                          <motion.div
-                            initial={{ opacity: 0, x: -20 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            transition={{ 
-                              delay: (categoriesData.length + 1) * 0.05, 
-                              duration: 0.3,
-                              ease: [0.25, 0.1, 0.25, 1],
-                            }}
-                            whileHover={{ x: 4, backgroundColor: '#f9fafb' }}
-                            whileTap={{ scale: 0.98 }}
-                            onClick={() => setMobileMenuOpen(false)}
-                            className="w-full flex items-center justify-between px-4 py-4 text-left text-sm tracking-[0.12em] text-[#2c3b6e] hover:text-black transition-colors rounded-lg"
-                          >
-                            <span className="font-medium">FAQs</span>
-                          </motion.div>
-                        </Link>
-
-                        {/* Contact Us Link */}
-                        <Link href="/contact">
-                          <motion.div
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                            transition={{ 
-                              delay: (categoriesData.length + 2) * 0.05, 
-                              duration: 0.3,
-                              ease: [0.25, 0.1, 0.25, 1],
-                            }}
-                            whileHover={{ x: 4, backgroundColor: '#f9fafb' }}
-                            whileTap={{ scale: 0.98 }}
-                  onClick={() => setMobileMenuOpen(false)}
-                            className="w-full flex items-center justify-between px-4 py-4 text-left text-sm tracking-[0.12em] text-[#2c3b6e] hover:text-black transition-colors rounded-lg"
-                          >
-                            <span className="font-medium">CONTACT US</span>
+                            <span className="font-medium">{t('navigation.contactUs', language)}</span>
                           </motion.div>
                         </Link>
 
@@ -867,6 +927,10 @@ export function UrbanNavigation() {
                                 whileTap={{ scale: 0.98 }}
                       onClick={() => {
                         setSelectedLanguage(lang);
+                        // Save to localStorage
+                        localStorage.setItem('selectedLanguage', JSON.stringify(lang));
+                        // Trigger storage event for other components
+                        window.dispatchEvent(new Event('storage'));
                         setMobileMenuOpen(false);
                       }}
                                 type="button"
@@ -894,35 +958,76 @@ export function UrbanNavigation() {
                         transition={{ duration: 0.3, ease: [0.25, 0.1, 0.25, 1] }}
                         className="p-6 space-y-1"
                       >
-                        {selectedCategory.subCategories.map((subCategory, index) => (
-                          <motion.button
-                            key={subCategory.id}
+                        {/* Link to main category page */}
+                        <Link
+                          href={selectedCategory.href}
+                          onClick={() => setMobileMenuOpen(false)}
+                        >
+                          <motion.div
                             initial={{ opacity: 0, x: -20 }}
                             animate={{ opacity: 1, x: 0 }}
                             transition={{ 
-                              delay: index * 0.05, 
+                              delay: 0, 
                               duration: 0.3,
                               ease: [0.25, 0.1, 0.25, 1],
                             }}
                             whileHover={{ x: 4, backgroundColor: '#f9fafb' }}
                             whileTap={{ scale: 0.98 }}
-                            onClick={() => {
-                              if (subCategory.subSubCategories && subCategory.subSubCategories.length > 0) {
+                            className="w-full flex items-center justify-between px-4 py-4 text-left text-sm tracking-wide text-[#2c3b6e] hover:text-black transition-colors rounded-lg border-b border-gray-200 mb-2"
+                          >
+                            <span className="font-semibold">{selectedCategory.name} - {t('navigation.viewAll', getLanguageCode()) || 'View All'}</span>
+                            <ChevronRight className="w-5 h-5 text-gray-400" strokeWidth={1.5} />
+                          </motion.div>
+                        </Link>
+
+                        {selectedCategory.subCategories.map((subCategory, index) => {
+                          const hasSubSubCategories = subCategory.subSubCategories && subCategory.subSubCategories.length > 0;
+                          
+                          return hasSubSubCategories ? (
+                            <motion.button
+                              key={subCategory.id}
+                              initial={{ opacity: 0, x: -20 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              transition={{ 
+                                delay: index * 0.05, 
+                                duration: 0.3,
+                                ease: [0.25, 0.1, 0.25, 1],
+                              }}
+                              whileHover={{ x: 4, backgroundColor: '#f9fafb' }}
+                              whileTap={{ scale: 0.98 }}
+                              onClick={() => {
                                 setSelectedSubCategory(subCategory);
                                 setMobileMenuLevel('subsubcategories');
-                              } else {
-                                setMobileMenuOpen(false);
-                              }
-                            }}
-                            type="button"
-                            className="w-full flex items-center justify-between px-4 py-4 text-left text-sm tracking-wide text-gray-700 hover:text-[#2c3b6e] transition-colors rounded-lg"
-                          >
-                            <span className="font-medium">{subCategory.name}</span>
-                            {subCategory.subSubCategories && subCategory.subSubCategories.length > 0 && (
+                              }}
+                              type="button"
+                              className="w-full flex items-center justify-between px-4 py-4 text-left text-sm tracking-wide text-gray-700 hover:text-[#2c3b6e] transition-colors rounded-lg"
+                            >
+                              <span className="font-medium">{subCategory.name}</span>
                               <ChevronRight className="w-5 h-5 text-gray-400" strokeWidth={1.5} />
-                            )}
-                          </motion.button>
-                        ))}
+                            </motion.button>
+                          ) : (
+                            <Link
+                              key={subCategory.id}
+                              href={subCategory.href}
+                              onClick={() => setMobileMenuOpen(false)}
+                            >
+                              <motion.div
+                                initial={{ opacity: 0, x: -20 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                transition={{ 
+                                  delay: index * 0.05, 
+                                  duration: 0.3,
+                                  ease: [0.25, 0.1, 0.25, 1],
+                                }}
+                                whileHover={{ x: 4, backgroundColor: '#f9fafb' }}
+                                whileTap={{ scale: 0.98 }}
+                                className="w-full flex items-center justify-between px-4 py-4 text-left text-sm tracking-wide text-gray-700 hover:text-[#2c3b6e] transition-colors rounded-lg"
+                              >
+                                <span className="font-medium">{subCategory.name}</span>
+                              </motion.div>
+                            </Link>
+                          );
+                        })}
                       </motion.div>
                     )}
 
@@ -936,6 +1041,28 @@ export function UrbanNavigation() {
                         transition={{ duration: 0.3, ease: [0.25, 0.1, 0.25, 1] }}
                         className="p-6 space-y-1"
                       >
+                        {/* Link to subcategory page */}
+                        <Link
+                          href={selectedSubCategory.href}
+                          onClick={() => setMobileMenuOpen(false)}
+                        >
+                          <motion.div
+                            initial={{ opacity: 0, x: -20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ 
+                              delay: 0, 
+                              duration: 0.3,
+                              ease: [0.25, 0.1, 0.25, 1],
+                            }}
+                            whileHover={{ x: 4, backgroundColor: '#f9fafb' }}
+                            whileTap={{ scale: 0.98 }}
+                            className="w-full flex items-center justify-between px-4 py-4 text-left text-sm tracking-wide text-[#2c3b6e] hover:text-black transition-colors rounded-lg border-b border-gray-200 mb-2"
+                          >
+                            <span className="font-semibold">{selectedSubCategory.name} - {t('navigation.viewAll', getLanguageCode()) || 'View All'}</span>
+                            <ChevronRight className="w-5 h-5 text-gray-400" strokeWidth={1.5} />
+                          </motion.div>
+                        </Link>
+
                         {selectedSubCategory.subSubCategories?.map((subSubCategory, index) => {
                           const parentSubCategory = selectedCategory?.subCategories.find(
                             (sc) => sc.subSubCategories?.some((ssc) => ssc.id === subSubCategory.id)

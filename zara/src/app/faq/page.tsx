@@ -1,18 +1,12 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ChevronDown, HelpCircle } from 'lucide-react';
 import Link from 'next/link';
 import { UrbanNavigation } from '@/components/UrbanNavigation';
 import { UrbanFooter } from '@/components/UrbanFooter';
-
-interface FAQItem {
-  id: number;
-  question: string;
-  answer: string;
-  category: string;
-}
+import { fetchFAQItems, FAQItem } from '@/lib/api';
 
 const faqCategories = [
   'All',
@@ -23,88 +17,80 @@ const faqCategories = [
   'Account',
 ];
 
-const faqData: FAQItem[] = [
-  {
-    id: 1,
-    question: 'How do I place an order?',
-    answer: 'You can place an order by browsing our products, selecting your desired items, and adding them to your cart. Once you\'re ready, proceed to checkout where you\'ll enter your shipping and payment information.',
-    category: 'Orders',
-  },
-  {
-    id: 2,
-    question: 'What payment methods do you accept?',
-    answer: 'We accept all major credit cards (Visa, Mastercard, American Express), PayPal, and bank transfers. All payments are processed securely through our encrypted payment gateway.',
-    category: 'Orders',
-  },
-  {
-    id: 3,
-    question: 'How long does shipping take?',
-    answer: 'Standard shipping typically takes 5-7 business days. Express shipping (2-3 business days) and overnight shipping options are also available at checkout. International orders may take 10-14 business days.',
-    category: 'Shipping',
-  },
-  {
-    id: 4,
-    question: 'Do you ship internationally?',
-    answer: 'Yes, we ship to over 50 countries worldwide. Shipping costs and delivery times vary by destination. You can view available shipping options and costs during checkout.',
-    category: 'Shipping',
-  },
-  {
-    id: 5,
-    question: 'What is your return policy?',
-    answer: 'We offer a 30-day return policy on all unworn items with tags attached. Items must be in original condition. Returns are free for orders over $100. Please contact our customer service to initiate a return.',
-    category: 'Returns',
-  },
-  {
-    id: 6,
-    question: 'How do I return an item?',
-    answer: 'To return an item, log into your account, go to your order history, and select the item you wish to return. Follow the instructions to print a return label and send the item back to us. Once received, we\'ll process your refund within 5-7 business days.',
-    category: 'Returns',
-  },
-  {
-    id: 7,
-    question: 'How do I know what size to order?',
-    answer: 'We provide detailed size charts for each product category. You can find size guides on each product page. If you\'re unsure, our customer service team is happy to help you find the perfect fit.',
-    category: 'Products',
-  },
-  {
-    id: 8,
-    question: 'Are your products authentic?',
-    answer: 'Absolutely. All our products are 100% authentic and sourced directly from authorized distributors and brands. We guarantee the authenticity of every item we sell.',
-    category: 'Products',
-  },
-  {
-    id: 9,
-    question: 'How do I create an account?',
-    answer: 'You can create an account by clicking the "Sign In" button in the top navigation, then selecting "Create Account". Fill out the registration form with your details, and you\'ll be able to track orders, save favorites, and enjoy faster checkout.',
-    category: 'Account',
-  },
-  {
-    id: 10,
-    question: 'How do I reset my password?',
-    answer: 'If you\'ve forgotten your password, click "Forgot Password" on the login page. Enter your email address, and we\'ll send you a link to reset your password. The link will be valid for 24 hours.',
-    category: 'Account',
-  },
-  {
-    id: 11,
-    question: 'Can I modify or cancel my order?',
-    answer: 'Orders can be modified or cancelled within 2 hours of placement. After that, the order enters processing and cannot be changed. Please contact customer service immediately if you need to make changes.',
-    category: 'Orders',
-  },
-  {
-    id: 12,
-    question: 'Do you offer gift wrapping?',
-    answer: 'Yes, we offer premium gift wrapping services for an additional fee. You can select this option during checkout. We also include a personalized gift message with your order.',
-    category: 'Orders',
-  },
-];
+// Helper to get language code from localStorage or default to 'en'
+function getLanguageCode(): string {
+  if (typeof window === 'undefined') return 'en';
+  const stored = localStorage.getItem('selectedLanguage');
+  if (stored) {
+    try {
+      const lang = JSON.parse(stored);
+      const code = lang.code?.toLowerCase() || 'en';
+      // Map UI language codes to API language codes
+      const langMap: Record<string, string> = {
+        'en': 'en',
+        'ru': 'ru',
+        'fr': 'en', // French not available, fallback to English
+        'de': 'en', // German not available, fallback to English
+      };
+      return langMap[code] || 'en';
+    } catch (e) {
+      return 'en';
+    }
+  }
+  return 'en';
+}
 
 export default function FAQPage() {
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [openItems, setOpenItems] = useState<number[]>([]);
+  const [faqItems, setFaqItems] = useState<FAQItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [lang, setLang] = useState<string>('en');
+
+  useEffect(() => {
+    const currentLang = getLanguageCode();
+    setLang(currentLang);
+    loadFAQData(currentLang);
+
+    // Listen for language changes
+    const handleLanguageChange = () => {
+      const newLang = getLanguageCode();
+      setLang((prevLang) => {
+        if (newLang !== prevLang) {
+          loadFAQData(newLang);
+          return newLang;
+        }
+        return prevLang;
+      });
+    };
+
+    // Check for language changes periodically (since navigation doesn't use context)
+    const interval = setInterval(handleLanguageChange, 1000);
+    
+    // Also listen to storage events
+    window.addEventListener('storage', handleLanguageChange);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('storage', handleLanguageChange);
+    };
+  }, []);
+
+  const loadFAQData = async (language: string) => {
+    try {
+      setLoading(true);
+      const items = await fetchFAQItems(language);
+      setFaqItems(items);
+    } catch (error) {
+      console.error('Error loading FAQ data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const filteredFAQs = selectedCategory === 'All'
-    ? faqData
-    : faqData.filter(faq => faq.category === selectedCategory);
+    ? faqItems
+    : faqItems.filter(faq => faq.category === selectedCategory);
 
   const toggleItem = (id: number) => {
     setOpenItems(prev =>
@@ -113,6 +99,21 @@ export default function FAQPage() {
         : [...prev, id]
     );
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-white overflow-x-hidden w-full">
+        <UrbanNavigation />
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#2c3b6e] mx-auto mb-4"></div>
+            <p className="text-sm text-gray-600">Loading...</p>
+          </div>
+        </div>
+        <UrbanFooter />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-white overflow-x-hidden w-full">
@@ -184,8 +185,13 @@ export default function FAQPage() {
             transition={{ duration: 0.6 }}
             className="max-w-4xl mx-auto space-y-4"
           >
-            <AnimatePresence>
-              {filteredFAQs.map((faq, index) => {
+            {filteredFAQs.length === 0 ? (
+              <div className="text-center py-12">
+                <p className="text-sm text-gray-600">No FAQ items found in this category.</p>
+              </div>
+            ) : (
+              <AnimatePresence>
+                {filteredFAQs.map((faq, index) => {
                 const isOpen = openItems.includes(faq.id);
                 return (
                   <motion.div
@@ -241,7 +247,8 @@ export default function FAQPage() {
                   </motion.div>
                 );
               })}
-            </AnimatePresence>
+              </AnimatePresence>
+            )}
           </motion.div>
 
           {/* Contact CTA */}
